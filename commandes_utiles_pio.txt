@@ -1,0 +1,4 @@
+Compiler : venv/bin/pio run
+Flasher : venv/bin/pio run --target upload
+Monitorer : venv/bin/pio device monitor
+Compiler et flasher : venv/bin/pio run --target upload --target monitor
