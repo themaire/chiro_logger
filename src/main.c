@@ -259,6 +259,18 @@ void app_main(void)
     ESP_LOGI(TAG, "Version: 1.0.0");
     ESP_LOGI(TAG, "Plateforme: LOLIN D32 PRO (ESP32)");
     
+    // Vérifier la cause du réveil
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    switch(wakeup_reason) {
+        case ESP_SLEEP_WAKEUP_TIMER:
+            ESP_LOGI(TAG, "⏰ Réveil du deep sleep (timer)");
+            break;
+        case ESP_SLEEP_WAKEUP_UNDEFINED:
+        default:
+            ESP_LOGI(TAG, "🚀 Démarrage initial du système");
+            break;
+    }
+    
     // Configuration initiale
     ESP_LOGI(TAG, "Initialisation du système...");
     
