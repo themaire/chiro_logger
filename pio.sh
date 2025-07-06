@@ -25,6 +25,7 @@ show_help() {
     echo -e "  ${YELLOW}full${NC}        - Compiler, flasher et monitorer"
     echo -e "  ${YELLOW}clean${NC}       - Nettoyer le projet"
     echo -e "  ${YELLOW}list${NC}        - Lister les ports série disponibles"
+    echo -e "  ${YELLOW}reset${NC}       - Redémarrer la carte ESP32"
     echo -e "  ${YELLOW}help${NC}        - Afficher cette aide"
     echo
     echo -e "${GREEN}Exemples:${NC}"
@@ -79,6 +80,19 @@ main() {
         "list"|"ports")
             echo -e "${BLUE}📋 Ports série disponibles:${NC}"
             venv/bin/pio device list
+            ;;
+        "reset"|"restart")
+            echo -e "${BLUE}🔄 Redémarrage de la carte ESP32...${NC}"
+            # Utiliser le moniteur PlatformIO pour reset
+            PORT=$(venv/bin/pio device list | grep -o '/dev/cu\.usbserial-[0-9]*' | head -1)
+            if [ -n "$PORT" ]; then
+                echo -e "${YELLOW}💡 Port détecté: $PORT${NC}"
+                echo -e "${YELLOW}💡 Appuyez sur le bouton RESET de la carte ou débranchez/rebranchez le câble USB${NC}"
+                echo -e "${YELLOW}💡 Puis utilisez: ./pio.sh monitor${NC}"
+            else
+                echo -e "${RED}❌ Erreur: Aucun port ESP32 détecté${NC}"
+                exit 1
+            fi
             ;;
         "help"|"-h"|"--help")
             show_help

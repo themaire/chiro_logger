@@ -1,7 +1,7 @@
 # 🦇 Projet de Datalogger Température & Humidité pour Cavités à Chiroptères
 
 > 📱 **Application mobile associée :** [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
-
+>
 > 💡 **Qu'est-ce qu'une PWA ?**  
 > Une Progressive Web App (PWA) est une application web qui fonctionne comme une app mobile native. Elle peut être installée sur smartphone, fonctionne hors-ligne, accède aux APIs natives (Bluetooth, géolocalisation...) et offre une expérience utilisateur fluide. Pas besoin de passer par les stores d'applications !
 
@@ -14,6 +14,7 @@ L’objectif est de récolter des données environnementales précises, sans per
 ## 🧪 Contexte scientifique
 
 Dans les études de suivi des chiroptères, la précision des mesures et la **non-perturbation du milieu** sont essentielles. De simples variations dues à l'ouverture d’un boîtier peuvent créer des artefacts dans les séries de données, voire impacter le comportement des individus. Il est donc nécessaire que :
+
 - L’appareil soit **étanche et totalement autonome**
 - Les mesures soient **horodatées** avec précision
 - Les données soient **récupérables sans contact physique**
@@ -35,6 +36,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 ### Fonctionnement logiciel
 
 #### 🔁 Mode normal (acquisition)
+
 - Réveil toutes les X minutes (configurable)
 - Lecture des capteurs BME280 + tension batterie
 - Horodatage via RTC
@@ -42,6 +44,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 - Remise en sommeil profond (deep sleep)
 
 #### 📲 Mode consultation (sans contact)
+
 - L’approche d’un doigt ou badge active un **capteur capacitif** à travers le boîtier étanche
 - Le microcontrôleur **réveille le module Bluetooth Low Energy (BLE)**
 - Un **smartphone** à proximité peut se connecter à l’appareil
@@ -50,6 +53,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 ## 📱 Application de consultation (mobile)
 
 Une application web Angular (PWA – progressive web app) permettra aux agents de :
+
 - Se connecter à l’ESP32 via **Bluetooth BLE**
 - Lire les fichiers de mesures enregistrés
 - Les afficher dans une **table lisible**
@@ -88,10 +92,12 @@ Une application web Angular (PWA – progressive web app) permettra aux agents d
 ## 🚀 Installation et Configuration
 
 ### Prérequis
+
 - macOS avec Python 3
 - Git installé
 
 ### Setup initial (première fois)
+
 ```bash
 # Cloner le repository
 git clone https://github.com/ton-username/chiro_logger.git
@@ -102,6 +108,7 @@ cd chiro_logger
 ```
 
 ### Utilisation quotidienne
+
 ```bash
 # Compiler, flasher et monitorer
 ./pio.sh full
@@ -116,7 +123,8 @@ cd chiro_logger
 ## 📋 Structure du projet
 
 ### 🦇 Hardware (ce repo)
-```
+
+```plaintext
 chiro_logger/
 ├── src/           # Code source C/C++ ESP32
 ├── include/       # Headers
@@ -127,6 +135,7 @@ chiro_logger/
 ```
 
 ### 📱 Software (repos séparés)
+
 - **[Angular Chiro App](https://github.com/themaire/angular_chiro_app)** - Application PWA mobile pour la récupération des données via Bluetooth BLE
 
 ## 🚀 Prochaine étape
