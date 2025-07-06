@@ -5,6 +5,7 @@
 #include <esp_system.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <esp_sleep.h>
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
 #include <driver/sdmmc_host.h>
@@ -23,6 +24,9 @@ static const char *TAG = "CHIRO_LOGGER";
 
 // Point de montage de la carte SD
 #define MOUNT_POINT "/sdcard"
+
+// Configuration du deep sleep (en secondes)
+#define DEEP_SLEEP_DURATION_SEC 5
 
 // Fonction utilitaire pour enregistrer des données au format CSV
 esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temperature, float humidity)
@@ -347,6 +351,22 @@ void app_main(void)
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Attendre 5 secondes
+        // Configurer le deep sleep timer
+        ESP_LOGI(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
+        
+        // Démonter proprement la carte SD avant le deep sleep pour éviter la corruption
+        if (sd_available) {
+            ESP_LOGI(TAG, "📤 Démontage SD avant deep sleep...");
+            unmount_sd_card();
+        }
+        
+        // Configurer le réveil par timer
+        esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
+        
+        // Entrer en deep sleep
+        esp_deep_sleep_start();
+        
+        // Cette ligne ne sera jamais exécutée car l'ESP32 redémarre après le deep sleep
+        // vTaskDelay(pdMS_TO_TICKS(5000)); // Attendre 5 secondes
     }
 }
