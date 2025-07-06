@@ -48,6 +48,53 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonomie :
 
 **⚡ Consommation :**
+- **Mode actif** (mesure + écriture SD) : ~100-200 mA pendant 2-3 secondes
+- **Mode deep sleep** : ~10-20 µA (microampères)
+- **Économie d'énergie** : >99% du temps en veille
+
+**📊 Gestion intelligente des données avec tampon flash :**
+
+Le datalogger utilise un système de **tampon flash interne** pour optimiser l'utilisation de la carte SD :
+
+1. **Stockage temporaire** : Les mesures sont d'abord stockées dans la **flash interne de l'ESP32** (partition SPIFFS de 15MB)
+2. **Économie d'énergie** : La carte SD n'est activée que lors du **flush périodique**
+3. **Flush automatique** : Transfert des données vers la SD toutes les **1000 mesures** (configurable)
+
+**🕒 Timing avec mesures toutes les 5 secondes :**
+
+- **Mesures 1-999** : Stockées dans le tampon flash
+- **Mesure 1000** : Déclenchement du flush → activation SD → transfert des 1000 mesures → extinction SD
+- **Cycle suivant** : Reprend avec le tampon vide
+
+**⚡ Économie d'énergie réalisée :**
+
+- **Sans tampon** : SD activée à chaque mesure (5s) = 720 activations/heure
+- **Avec tampon** : SD activée toutes les 1000 mesures = 1 activation toutes les **83 heures**
+- **Réduction** : **99.9% d'activations SD en moins** = autonomie considérablement prolongée
+
+**🔍 Monitoring dans les logs :**
+
+```text
+📊 Tampon: 999/1000 mesures
+📊 Tampon: 1000/1000 mesures
+🔄 Seuil atteint - flush vers la carte SD...
+📊 Flush de 1000 mesures vers la SD
+✅ 1000 lignes copiées vers la SD
+🧹 Tampon flash vidé
+✅ Flush réussi - tampon vidé
+```
+
+**💾 Fiabilité des données :**
+
+- Données sécurisées dans la flash interne (persistante après coupure)
+- Mode dégradé automatique : écriture directe sur SD si tampon indisponible
+- Aucune perte de données même en cas de problème SD temporaire
+
+**⚡ Économie d'énergie réalisée :**
+
+- **Sans tampon** : SD activée à chaque mesure (5s) = 720 activations/heure
+- **Avec tampon** : SD activée toutes les 1000 mesures = 1 activation toutes les **83 heures**
+- **Réduction** : **99.9% d'activations SD en moins** = autonomie considérablement prolongée
 
 - Mode actif : ~80 mA
 - Deep sleep : ~10 µA (8000x moins !)
@@ -59,9 +106,8 @@ Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonom
 📊 Cycle de mesure #1
 🌡️  Mesure: T=18.7°C, H=85.4%
 💾 Données sauvegardées sur SD
-📤 Démontage SD avant deep sleep...
-💤 Entrée en deep sleep pour 5 secondes...
-    [5 secondes plus tard]
+ Entrée en deep sleep pour 5 secondes...
+    [5 secondes plus tard - REDÉMARRAGE COMPLET]
 ⏰ Réveil du deep sleep (timer)
 📊 Cycle de mesure #2
 🌡️  Mesure: T=18.9°C, H=85.8%
@@ -77,9 +123,10 @@ Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonom
 
 **🛡️ Sécurité des données :**
 
-- Démontage automatique de la carte SD avant chaque sleep
-- Prévient la corruption des fichiers
+- Chaque fichier CSV est fermé immédiatement après écriture
+- Le deep sleep provoque un redémarrage complet qui nettoie automatiquement toutes les structures
 - Récupération automatique de la carte SD à chaud
+- Pas de corruption possible grâce au redémarrage propre de l'ESP32
 
 #### 🔄 Gestion robuste de la carte SD (Hot-Plug)
 

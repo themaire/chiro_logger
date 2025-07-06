@@ -24,6 +24,7 @@ show_help() {
     echo -e "  ${YELLOW}build-flash${NC} - Compiler et flasher en une seule commande"
     echo -e "  ${YELLOW}full${NC}        - Compiler, flasher et monitorer"
     echo -e "  ${YELLOW}clean${NC}       - Nettoyer le projet"
+    echo -e "  ${YELLOW}clean-all${NC}   - Nettoyage complet (supprime .pio)"
     echo -e "  ${YELLOW}list${NC}        - Lister les ports série disponibles"
     echo -e "  ${YELLOW}reset${NC}       - Redémarrer la carte ESP32"
     echo -e "  ${YELLOW}help${NC}        - Afficher cette aide"
@@ -76,6 +77,12 @@ main() {
         "clean")
             echo -e "${BLUE}🧹 Nettoyage du projet...${NC}"
             venv/bin/pio run --target clean
+            ;;
+        "clean-all"|"cleanall")
+            echo -e "${BLUE}🧹💥 Nettoyage complet du projet...${NC}"
+            echo -e "${YELLOW}💡 Suppression du dossier .pio pour un rebuild complet${NC}"
+            rm -rf .pio
+            echo -e "${GREEN}✅ Nettoyage complet terminé${NC}"
             ;;
         "list"|"ports")
             echo -e "${BLUE}📋 Ports série disponibles:${NC}"

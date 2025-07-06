@@ -13,6 +13,8 @@
 #include <driver/spi_common.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <esp_spiffs.h>
+#include <esp_vfs_semihost.h>
 
 static const char *TAG = "CHIRO_LOGGER";
 
@@ -25,8 +27,16 @@ static const char *TAG = "CHIRO_LOGGER";
 // Point de montage de la carte SD
 #define MOUNT_POINT "/sdcard"
 
+// Point de montage du tampon flash (partition SPIFFS)
+#define BUFFER_MOUNT_POINT "/buffer"
+
 // Configuration du deep sleep (en secondes)
 #define DEEP_SLEEP_DURATION_SEC 5
+
+// Configuration du tampon flash pour économie d'énergie
+#define BUFFER_FLUSH_THRESHOLD 5  // Nombre de mesures avant flush vers SD (5 pour tests, 1000 pour déploiement)
+
+#define BUFFER_CSV_FILE "/buffer/data_buffer.csv"
 
 // Fonction utilitaire pour enregistrer des données au format CSV
 esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temperature, float humidity)
@@ -253,6 +263,177 @@ esp_err_t unmount_sd_card(void)
     return ESP_OK;
 }
 
+// Fonction d'initialisation du tampon flash (partition SPIFFS)
+esp_err_t init_flash_buffer(void)
+{
+    ESP_LOGI(TAG, "🔋 Initialisation du tampon flash énergétique...");
+    
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = BUFFER_MOUNT_POINT,
+        .partition_label = "data_buffer",
+        .max_files = 5,
+        .format_if_mount_failed = true
+    };
+    
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(TAG, "❌ Impossible de monter la partition SPIFFS");
+        } else if (ret == ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "❌ Partition 'data_buffer' introuvable");
+        } else {
+            ESP_LOGE(TAG, "❌ Erreur montage SPIFFS: %s", esp_err_to_name(ret));
+        }
+        return ret;
+    }
+    
+    ESP_LOGI(TAG, "✅ Tampon flash monté sur %s", BUFFER_MOUNT_POINT);
+    
+    // Vérifier l'espace disponible
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info("data_buffer", &total, &used);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "📊 Espace tampon: %zu Ko utilisés / %zu Ko total", 
+                used / 1024, total / 1024);
+    }
+    
+    return ESP_OK;
+}
+
+// Fonction pour ajouter une mesure dans le tampon flash
+esp_err_t add_to_flash_buffer(const char* datetime, float temperature, float humidity)
+{
+    ESP_LOGI(TAG, "🔋 Ajout mesure au tampon flash...");
+    
+    // Vérifier si le fichier existe déjà
+    FILE *file = fopen(BUFFER_CSV_FILE, "r");
+    bool file_exists = (file != NULL);
+    if (file != NULL) {
+        fclose(file);
+    }
+    
+    // Ouvrir le fichier en mode append
+    file = fopen(BUFFER_CSV_FILE, "a");
+    if (file == NULL) {
+        ESP_LOGE(TAG, "❌ Impossible d'ouvrir le tampon CSV: %s", BUFFER_CSV_FILE);
+        return ESP_FAIL;
+    }
+    
+    // Si le fichier n'existait pas, écrire l'en-tête
+    if (!file_exists) {
+        ESP_LOGI(TAG, "📄 Création du tampon CSV avec en-tête");
+        fprintf(file, "DateTime,Temperature_C,Humidity_%%\n");
+    }
+    
+    // Écrire les données
+    if (datetime == NULL) {
+        int64_t timestamp = esp_timer_get_time() / 1000000;
+        fprintf(file, "%lld,", (long long)timestamp);
+    } else {
+        fprintf(file, "%s,", datetime);
+    }
+    
+    if (temperature == -999.0f) {
+        fprintf(file, "N/A,");
+    } else {
+        fprintf(file, "%.2f,", temperature);
+    }
+    
+    if (humidity == -999.0f) {
+        fprintf(file, "N/A\n");
+    } else {
+        fprintf(file, "%.2f\n", humidity);
+    }
+    
+    fclose(file);
+    ESP_LOGI(TAG, "✅ Mesure ajoutée au tampon flash");
+    return ESP_OK;
+}
+
+// Fonction pour compter les lignes dans le tampon flash
+int count_buffer_lines(void)
+{
+    FILE *file = fopen(BUFFER_CSV_FILE, "r");
+    if (file == NULL) {
+        return 0;
+    }
+    
+    int lines = 0;
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), file)) {
+        lines++;
+    }
+    fclose(file);
+    
+    // Soustraire l'en-tête
+    return lines > 1 ? lines - 1 : 0;
+}
+
+// Fonction pour transférer le tampon flash vers la carte SD
+esp_err_t flush_buffer_to_sd(void)
+{
+    ESP_LOGI(TAG, "🔄 Flush du tampon flash vers la carte SD...");
+    
+    // Vérifier si le tampon existe
+    FILE *buffer_file = fopen(BUFFER_CSV_FILE, "r");
+    if (buffer_file == NULL) {
+        ESP_LOGI(TAG, "ℹ️  Aucun tampon à flusher");
+        return ESP_OK;
+    }
+    
+    // Compter les lignes pour information
+    int buffer_lines = count_buffer_lines();
+    ESP_LOGI(TAG, "📊 Flush de %d mesures vers la SD", buffer_lines);
+    
+    // Initialiser la carte SD
+    esp_err_t ret = init_sd_card();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "❌ Impossible d'initialiser la SD pour le flush");
+        fclose(buffer_file);
+        return ret;
+    }
+    
+    // Ouvrir le fichier de destination sur la SD
+    FILE *sd_file = fopen("/sdcard/CHIRO/data.csv", "a");
+    if (sd_file == NULL) {
+        ESP_LOGE(TAG, "❌ Impossible d'ouvrir le fichier SD pour le flush");
+        fclose(buffer_file);
+        unmount_sd_card();
+        return ESP_FAIL;
+    }
+    
+    // Copier toutes les données du tampon vers la SD (sauf l'en-tête)
+    char line[256];
+    bool first_line = true;
+    int lines_copied = 0;
+    
+    while (fgets(line, sizeof(line), buffer_file)) {
+        if (first_line) {
+            first_line = false;
+            continue; // Ignorer l'en-tête
+        }
+        fputs(line, sd_file);
+        lines_copied++;
+    }
+    
+    fclose(buffer_file);
+    fclose(sd_file);
+    
+    ESP_LOGI(TAG, "✅ %d lignes copiées vers la SD", lines_copied);
+    
+    // Vider le tampon après transfert réussi
+    if (remove(BUFFER_CSV_FILE) == 0) {
+        ESP_LOGI(TAG, "🧹 Tampon flash vidé");
+    } else {
+        ESP_LOGW(TAG, "⚠️  Impossible de vider le tampon");
+    }
+    
+    // Démonter la SD pour économiser l'énergie
+    unmount_sd_card();
+    
+    return ESP_OK;
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "🦇 Chiro Logger - Datalogger pour chiroptères");
@@ -274,27 +455,14 @@ void app_main(void)
     // Configuration initiale
     ESP_LOGI(TAG, "Initialisation du système...");
     
-    // Variable pour suivre le statut de la carte SD
-    bool sd_available = false;
-    
-    // Initialisation de la carte SD
-    esp_err_t ret = init_sd_card();
+    // Initialiser le tampon flash énergétique
+    esp_err_t ret = init_flash_buffer();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Erreur lors de l'initialisation de la carte SD");
-        ESP_LOGI(TAG, "Le système continue sans carte SD...");
-        sd_available = false;
+        ESP_LOGE(TAG, "❌ Impossible d'initialiser le tampon flash");
+        ESP_LOGI(TAG, "Mode dégradé: écriture directe sur SD");
+        // Continuer en mode dégradé si le tampon flash échoue
     } else {
-        ESP_LOGI(TAG, "✅ Carte SD initialisée avec succès");
-        sd_available = true;
-        
-        // Test d'écriture
-        ret = test_sd_card();
-        if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "✅ Test d'écriture SD réussi");
-        } else {
-            ESP_LOGE(TAG, "❌ Test d'écriture SD échoué");
-            sd_available = false; // Désactiver si le test échoue
-        }
+        ESP_LOGI(TAG, "✅ Tampon flash initialisé - mode économie d'énergie activé");
     }
     
     // Boucle principale - effectuer UNE mesure puis dormir
@@ -303,70 +471,59 @@ void app_main(void)
     
     ESP_LOGI(TAG, "📊 Cycle de mesure #%d", counter);
     
-    // Vérifier périodiquement la disponibilité de la carte SD si elle n'est pas disponible
-    if (!sd_available && (counter % 5 == 1)) { // Vérifier tous les 5 cycles (25 secondes avec sleep de 5s)
-        ESP_LOGI(TAG, "🔍 Tentative de récupération de la carte SD...");
-        
-        // D'abord démonter proprement tout ce qui pourrait être monté
-        unmount_sd_card();
-        
-        // Attendre un peu pour laisser le système se stabiliser
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        
-        // Tenter de réinitialiser la carte SD
-        esp_err_t retry_result = init_sd_card();
-        if (retry_result == ESP_OK) {
-            ESP_LOGI(TAG, "🎉 Carte SD récupérée avec succès!");
-            sd_available = true;
-            
-            // Effectuer un test rapide
-            if (test_sd_card() == ESP_OK) {
-                ESP_LOGI(TAG, "✅ Test de récupération SD réussi");
-            } else {
-                ESP_LOGW(TAG, "⚠️  Test de récupération SD échoué");
-                sd_available = false;
-            }
-        } else {
-            ESP_LOGW(TAG, "🔄 Récupération SD échouée (cycle %d)", counter);
-        }
-    }
-    
     // Effectuer une mesure
     float temp = 18.5 + (counter * 0.1);
     float humidity = 85.0 + (counter * 0.2);
     
     ESP_LOGI(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
     
-    // Enregistrer les données dans le fichier CSV (seulement si la SD est disponible)
-    if (sd_available) {
-        // Générer un timestamp simple pour la démonstration
-        char datetime_str[32];
-        int64_t timestamp = esp_timer_get_time() / 1000000; // Secondes depuis le démarrage
-        snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
+    // Générer un timestamp
+    char datetime_str[32];
+    int64_t timestamp = esp_timer_get_time() / 1000000;
+    snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
+    
+    // Ajouter la mesure au tampon flash (mode économie d'énergie)
+    esp_err_t buffer_result = add_to_flash_buffer(datetime_str, temp, humidity);
+    if (buffer_result == ESP_OK) {
+        ESP_LOGI(TAG, "🔋 Mesure stockée dans le tampon flash");
         
-        esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
-                                               datetime_str, temp, humidity);
-        if (csv_result == ESP_OK) {
-            ESP_LOGI(TAG, "💾 Données sauvegardées sur SD");
-        } else {
-            ESP_LOGW(TAG, "⚠️  Échec sauvegarde sur SD - vérification de la carte...");
-            // Si l'écriture échoue, marquer la SD comme non disponible et démonter
-            sd_available = false;
-            ESP_LOGI(TAG, "🔌 Carte SD déconnectée détectée - démontage...");
-            unmount_sd_card();
+        // Vérifier si il faut faire un flush vers la SD
+        int buffer_count = count_buffer_lines();
+        ESP_LOGI(TAG, "📊 Tampon: %d/%d mesures", buffer_count, BUFFER_FLUSH_THRESHOLD);
+        
+        if (buffer_count >= BUFFER_FLUSH_THRESHOLD) {
+            ESP_LOGI(TAG, "🔄 Seuil atteint - flush vers la carte SD...");
+            esp_err_t flush_result = flush_buffer_to_sd();
+            if (flush_result == ESP_OK) {
+                ESP_LOGI(TAG, "✅ Flush réussi - tampon vidé");
+            } else {
+                ESP_LOGW(TAG, "⚠️  Flush échoué - données conservées dans le tampon");
+            }
         }
     } else {
-        ESP_LOGW(TAG, "⚠️  Carte SD non disponible - données non sauvegardées");
+        ESP_LOGW(TAG, "⚠️  Échec stockage tampon - tentative écriture directe SD");
+        
+        // Mode dégradé: écriture directe sur SD
+        esp_err_t sd_result = init_sd_card();
+        if (sd_result == ESP_OK) {
+            esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
+                                                   datetime_str, temp, humidity);
+            if (csv_result == ESP_OK) {
+                ESP_LOGI(TAG, "💾 Données sauvegardées directement sur SD");
+            } else {
+                ESP_LOGE(TAG, "❌ Échec sauvegarde directe sur SD");
+            }
+            unmount_sd_card();
+        } else {
+            ESP_LOGE(TAG, "❌ Données perdues - tampon et SD indisponibles");
+        }
     }
     
     // Configurer le deep sleep timer
     ESP_LOGI(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
     
-    // Démonter proprement la carte SD avant le deep sleep pour éviter la corruption
-    if (sd_available) {
-        ESP_LOGI(TAG, "📤 Démontage SD avant deep sleep...");
-        unmount_sd_card();
-    }
+    // Note: Pas besoin de démonter la SD avant deep sleep car le redémarrage 
+    // nettoie automatiquement toutes les structures internes d'ESP-IDF
     
     // Configurer le réveil par timer
     esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
