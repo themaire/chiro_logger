@@ -15,6 +15,7 @@
 #include <time.h>
 #include <esp_spiffs.h>
 #include <esp_vfs_semihost.h>
+#include <driver/gpio.h>
 
 static const char *TAG = "CHIRO_LOGGER";
 
@@ -23,6 +24,9 @@ static const char *TAG = "CHIRO_LOGGER";
 #define PIN_NUM_MOSI 23
 #define PIN_NUM_CLK  18
 #define PIN_NUM_CS   4
+
+// Configuration LED pour feedback visuel
+#define LED_PIN 5  // LED intégrée sur LOLIN D32 PRO (alternative si GPIO 2 ne fonctionne pas)
 
 // Point de montage de la carte SD
 #define MOUNT_POINT "/sdcard"
@@ -37,6 +41,10 @@ static const char *TAG = "CHIRO_LOGGER";
 #define BUFFER_FLUSH_THRESHOLD 5  // Nombre de mesures avant flush vers SD (5 pour tests, 1000 pour déploiement)
 
 #define BUFFER_CSV_FILE "/buffer/data_buffer.csv"
+
+// Déclarations de fonctions
+esp_err_t init_led(void);
+void blink_led(int count, int delay_ms);
 
 // Fonction utilitaire pour enregistrer des données au format CSV
 esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temperature, float humidity)
@@ -347,6 +355,10 @@ esp_err_t add_to_flash_buffer(const char* datetime, float temperature, float hum
     
     fclose(file);
     ESP_LOGI(TAG, "✅ Mesure ajoutée au tampon flash");
+    
+    // Clignotement LED : 1 fois pour ajout au tampon
+    blink_led(1, 100);
+    
     return ESP_OK;
 }
 
@@ -421,6 +433,9 @@ esp_err_t flush_buffer_to_sd(void)
     
     ESP_LOGI(TAG, "✅ %d lignes copiées vers la SD", lines_copied);
     
+    // Clignotement LED : 20 fois pour flush vers SD
+    blink_led(20, 50);
+    
     // Vider le tampon après transfert réussi
     if (remove(BUFFER_CSV_FILE) == 0) {
         ESP_LOGI(TAG, "🧹 Tampon flash vidé");
@@ -432,6 +447,39 @@ esp_err_t flush_buffer_to_sd(void)
     unmount_sd_card();
     
     return ESP_OK;
+}
+
+// Fonction d'initialisation de la LED
+esp_err_t init_led(void)
+{
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << LED_PIN),
+        .pull_down_en = 0,
+        .pull_up_en = 0,
+    };
+    
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret == ESP_OK) {
+        gpio_set_level(LED_PIN, 0); // LED éteinte au démarrage
+        ESP_LOGI(TAG, "✅ LED initialisée sur pin %d", LED_PIN);
+    }
+    return ret;
+}
+
+// Fonction pour faire clignoter la LED
+void blink_led(int count, int delay_ms)
+{
+    ESP_LOGI(TAG, "💡 LED: %d clignotement(s)", count);
+    for (int i = 0; i < count; i++) {
+        gpio_set_level(LED_PIN, 1); // Allumer
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        gpio_set_level(LED_PIN, 0); // Éteindre
+        if (i < count - 1) { // Pas de délai après le dernier clignotement
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        }
+    }
 }
 
 void app_main(void)
@@ -455,8 +503,19 @@ void app_main(void)
     // Configuration initiale
     ESP_LOGI(TAG, "Initialisation du système...");
     
+    // Initialiser la LED pour feedback visuel
+    esp_err_t ret = init_led();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "⚠️  Impossible d'initialiser la LED");
+    } else {
+        // Test LED au démarrage : 3 clignotements pour confirmer que ça fonctionne
+        ESP_LOGI(TAG, "🔍 Test LED au démarrage...");
+        blink_led(3, 200);
+        vTaskDelay(pdMS_TO_TICKS(500)); // Pause avant de continuer
+    }
+    
     // Initialiser le tampon flash énergétique
-    esp_err_t ret = init_flash_buffer();
+    ret = init_flash_buffer();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "❌ Impossible d'initialiser le tampon flash");
         ESP_LOGI(TAG, "Mode dégradé: écriture directe sur SD");
@@ -470,6 +529,9 @@ void app_main(void)
     counter++; // Incrémenter le compteur à chaque réveil
     
     ESP_LOGI(TAG, "📊 Cycle de mesure #%d", counter);
+    
+    // Signal LED de début de cycle
+    blink_led(1, 50);
     
     // Effectuer une mesure
     float temp = 18.5 + (counter * 0.1);
