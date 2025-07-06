@@ -1,4 +1,3 @@
-
 # 🦇 Projet de Datalogger Température & Humidité pour Cavités à Chiroptères
 
 ## 🎯 Objectif
@@ -80,6 +79,45 @@ Une application web Angular (PWA – progressive web app) permettra aux agents d
 - 📄 Fichier `.csv` exportable avec : date, heure, température, humidité, pression, tension batterie
 - 📲 Application web Angular compatible smartphones Android/iOS pour la récupération sans fil des données
 - 📘 Documentation d’installation, mise en service, et maintenance
+
+## 🚀 Installation et Configuration
+
+### Prérequis
+- macOS avec Python 3
+- Git installé
+
+### Setup initial (première fois)
+```bash
+# Cloner le repository
+git clone https://github.com/ton-username/chiro_logger.git
+cd chiro_logger
+
+# Configurer l'environnement de développement
+./setup_env.sh
+```
+
+### Utilisation quotidienne
+```bash
+# Compiler, flasher et monitorer
+./pio.sh full
+
+# Ou commandes individuelles
+./pio.sh compile
+./pio.sh flash
+./pio.sh monitor
+./pio.sh help
+```
+
+## 📋 Structure du projet
+```
+chiro_logger/
+├── src/           # Code source C/C++
+├── include/       # Headers
+├── platformio.ini # Configuration PlatformIO
+├── pio.sh         # Script d'automatisation
+├── setup_env.sh   # Script d'installation
+└── venv/          # Environnement virtuel (non versionné)
+```
 
 ## 🚀 Prochaine étape
 
