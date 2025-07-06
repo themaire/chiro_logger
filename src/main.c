@@ -297,88 +297,82 @@ void app_main(void)
         }
     }
     
-    // Boucle principale
-    int counter = 0;
-    int sd_retry_counter = 0;
-    while (1) {
-        ESP_LOGI(TAG, "Système en fonctionnement - Cycle %d", counter++);
+    // Boucle principale - effectuer UNE mesure puis dormir
+    static int counter = 0; // Static pour persister entre les réveils
+    counter++; // Incrémenter le compteur à chaque réveil
+    
+    ESP_LOGI(TAG, "📊 Cycle de mesure #%d", counter);
+    
+    // Vérifier périodiquement la disponibilité de la carte SD si elle n'est pas disponible
+    if (!sd_available && (counter % 5 == 1)) { // Vérifier tous les 5 cycles (25 secondes avec sleep de 5s)
+        ESP_LOGI(TAG, "🔍 Tentative de récupération de la carte SD...");
         
-        // Vérifier périodiquement la disponibilité de la carte SD si elle n'est pas disponible
-        if (!sd_available && (counter % 5 == 0)) { // Vérifier toutes les 5 cycles (25 secondes)
-            ESP_LOGI(TAG, "🔍 Tentative de récupération de la carte SD...");
+        // D'abord démonter proprement tout ce qui pourrait être monté
+        unmount_sd_card();
+        
+        // Attendre un peu pour laisser le système se stabiliser
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        
+        // Tenter de réinitialiser la carte SD
+        esp_err_t retry_result = init_sd_card();
+        if (retry_result == ESP_OK) {
+            ESP_LOGI(TAG, "🎉 Carte SD récupérée avec succès!");
+            sd_available = true;
             
-            // D'abord démonter proprement tout ce qui pourrait être monté
-            unmount_sd_card();
-            
-            // Attendre un peu pour laisser le système se stabiliser
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            
-            // Tenter de réinitialiser la carte SD
-            esp_err_t retry_result = init_sd_card();
-            if (retry_result == ESP_OK) {
-                ESP_LOGI(TAG, "🎉 Carte SD récupérée avec succès!");
-                sd_available = true;
-                sd_retry_counter = 0;
-                
-                // Effectuer un test rapide
-                if (test_sd_card() == ESP_OK) {
-                    ESP_LOGI(TAG, "✅ Test de récupération SD réussi");
-                } else {
-                    ESP_LOGW(TAG, "⚠️  Test de récupération SD échoué");
-                    sd_available = false;
-                }
+            // Effectuer un test rapide
+            if (test_sd_card() == ESP_OK) {
+                ESP_LOGI(TAG, "✅ Test de récupération SD réussi");
             } else {
-                sd_retry_counter++;
-                ESP_LOGW(TAG, "🔄 Récupération SD échouée (tentative %d)", sd_retry_counter);
+                ESP_LOGW(TAG, "⚠️  Test de récupération SD échoué");
+                sd_available = false;
             }
+        } else {
+            ESP_LOGW(TAG, "🔄 Récupération SD échouée (cycle %d)", counter);
         }
-        
-        // Simulation d'une mesure toutes les 10 secondes (tous les 2 cycles de 5s)
-        if (counter % 2 == 0) {
-            float temp = 18.5 + (counter * 0.1);
-            float humidity = 85.0 + (counter * 0.2);
-            
-            ESP_LOGI(TAG, "📊 Simulation: T=%.1f°C, H=%.1f%%", temp, humidity);
-            
-            // Enregistrer les données dans le fichier CSV (seulement si la SD est disponible)
-            if (sd_available) {
-                // Générer un timestamp simple pour la démonstration
-                char datetime_str[32];
-                int64_t timestamp = esp_timer_get_time() / 1000000; // Secondes depuis le démarrage
-                snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
-                
-                esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
-                                                       datetime_str, temp, humidity);
-                if (csv_result == ESP_OK) {
-                    ESP_LOGI(TAG, "💾 Données sauvegardées sur SD");
-                } else {
-                    ESP_LOGW(TAG, "⚠️  Échec sauvegarde sur SD - vérification de la carte...");
-                    // Si l'écriture échoue, marquer la SD comme non disponible et démonter
-                    sd_available = false;
-                    ESP_LOGI(TAG, "🔌 Carte SD déconnectée détectée - démontage...");
-                    unmount_sd_card();
-                }
-            } else {
-                ESP_LOGW(TAG, "⚠️  Carte SD non disponible - données non sauvegardées");
-            }
-        }
-        
-        // Configurer le deep sleep timer
-        ESP_LOGI(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
-        
-        // Démonter proprement la carte SD avant le deep sleep pour éviter la corruption
-        if (sd_available) {
-            ESP_LOGI(TAG, "📤 Démontage SD avant deep sleep...");
-            unmount_sd_card();
-        }
-        
-        // Configurer le réveil par timer
-        esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
-        
-        // Entrer en deep sleep
-        esp_deep_sleep_start();
-        
-        // Cette ligne ne sera jamais exécutée car l'ESP32 redémarre après le deep sleep
-        // vTaskDelay(pdMS_TO_TICKS(5000)); // Attendre 5 secondes
     }
+    
+    // Effectuer une mesure
+    float temp = 18.5 + (counter * 0.1);
+    float humidity = 85.0 + (counter * 0.2);
+    
+    ESP_LOGI(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
+    
+    // Enregistrer les données dans le fichier CSV (seulement si la SD est disponible)
+    if (sd_available) {
+        // Générer un timestamp simple pour la démonstration
+        char datetime_str[32];
+        int64_t timestamp = esp_timer_get_time() / 1000000; // Secondes depuis le démarrage
+        snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
+        
+        esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
+                                               datetime_str, temp, humidity);
+        if (csv_result == ESP_OK) {
+            ESP_LOGI(TAG, "💾 Données sauvegardées sur SD");
+        } else {
+            ESP_LOGW(TAG, "⚠️  Échec sauvegarde sur SD - vérification de la carte...");
+            // Si l'écriture échoue, marquer la SD comme non disponible et démonter
+            sd_available = false;
+            ESP_LOGI(TAG, "🔌 Carte SD déconnectée détectée - démontage...");
+            unmount_sd_card();
+        }
+    } else {
+        ESP_LOGW(TAG, "⚠️  Carte SD non disponible - données non sauvegardées");
+    }
+    
+    // Configurer le deep sleep timer
+    ESP_LOGI(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
+    
+    // Démonter proprement la carte SD avant le deep sleep pour éviter la corruption
+    if (sd_available) {
+        ESP_LOGI(TAG, "📤 Démontage SD avant deep sleep...");
+        unmount_sd_card();
+    }
+    
+    // Configurer le réveil par timer
+    esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
+    
+    // Entrer en deep sleep
+    esp_deep_sleep_start();
+    
+    // Cette ligne ne sera jamais exécutée car l'ESP32 redémarre après le deep sleep
 }
