@@ -1,5 +1,10 @@
 # 🦇 Projet de Datalogger Température & Humidité pour Cavités à Chiroptères
 
+> 📱 **Application mobile associée :** [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
+
+> 💡 **Qu'est-ce qu'une PWA ?**  
+> Une Progressive Web App (PWA) est une application web qui fonctionne comme une app mobile native. Elle peut être installée sur smartphone, fonctionne hors-ligne, accède aux APIs natives (Bluetooth, géolocalisation...) et offre une expérience utilisateur fluide. Pas besoin de passer par les stores d'applications !
+
 ## 🎯 Objectif
 
 Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température**, de l’**humidité** et de la **pression atmosphérique** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
@@ -109,15 +114,20 @@ cd chiro_logger
 ```
 
 ## 📋 Structure du projet
+
+### 🦇 Hardware (ce repo)
 ```
 chiro_logger/
-├── src/           # Code source C/C++
+├── src/           # Code source C/C++ ESP32
 ├── include/       # Headers
 ├── platformio.ini # Configuration PlatformIO
 ├── pio.sh         # Script d'automatisation
 ├── setup_env.sh   # Script d'installation
 └── venv/          # Environnement virtuel (non versionné)
 ```
+
+### 📱 Software (repos séparés)
+- **[Angular Chiro App](https://github.com/themaire/angular_chiro_app)** - Application PWA mobile pour la récupération des données via Bluetooth BLE
 
 ## 🚀 Prochaine étape
 
