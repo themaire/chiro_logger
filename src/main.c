@@ -29,7 +29,7 @@ esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temp
 {
     // Valeurs par défaut si les paramètres sont NULL ou invalides
     if (filepath == NULL) {
-        filepath = "/sdcard/chiro/data.csv";
+        filepath = "/sdcard/CHIRO/data.csv";
     }
     
     // Vérifier si le fichier existe déjà
@@ -112,8 +112,13 @@ esp_err_t init_sd_card(void)
     
     ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Erreur initialisation bus SPI: %s", esp_err_to_name(ret));
-        return ret;
+        if (ret == ESP_ERR_INVALID_STATE) {
+            // Le bus SPI est déjà initialisé, c'est normal lors d'une récupération
+            ESP_LOGI(TAG, "Bus SPI déjà initialisé (récupération)");
+        } else {
+            ESP_LOGE(TAG, "Erreur initialisation bus SPI: %s", esp_err_to_name(ret));
+            return ret;
+        }
     }
     
     // Configuration du slot SPI pour la carte SD
@@ -148,7 +153,7 @@ esp_err_t init_sd_card(void)
     ESP_LOGI(TAG, "Vérification des permissions du répertoire %s", mount_point);
     
     // Créer le répertoire de travail pour le projet
-    const char* work_dir = "/sdcard/chiro";
+    const char* work_dir = "/sdcard/CHIRO";
     struct stat st;
     if (stat(work_dir, &st) != 0) {
         ESP_LOGI(TAG, "Création du répertoire de travail: %s", work_dir);
@@ -179,7 +184,7 @@ esp_err_t test_sd_card(void)
     ESP_LOGI(TAG, "Point de montage %s existe", MOUNT_POINT);
     
     // Essayer d'abord avec un chemin dans le répertoire du projet
-    const char* test_file = "/sdcard/chiro/test.txt";
+    const char* test_file = "/sdcard/CHIRO/test.txt";
     ESP_LOGI(TAG, "Tentative d'écriture dans: %s", test_file);
     
     FILE *f = fopen(test_file, "w");
@@ -187,7 +192,7 @@ esp_err_t test_sd_card(void)
         ESP_LOGE(TAG, "Erreur: impossible d'ouvrir %s pour écriture", test_file);
         
         // Essayer avec un nom de fichier différent dans le répertoire racine
-        test_file = "/sdcard/chiro.txt";
+        test_file = "/sdcard/CHIRO.txt";
         ESP_LOGI(TAG, "Tentative avec un autre nom: %s", test_file);
         f = fopen(test_file, "w");
         
@@ -226,6 +231,24 @@ esp_err_t test_sd_card(void)
     return ESP_OK;
 }
 
+// Fonction pour démonter proprement la carte SD
+esp_err_t unmount_sd_card(void)
+{
+    ESP_LOGI(TAG, "Démontage de la carte SD...");
+    
+    // Démonter le système de fichiers
+    esp_err_t ret = esp_vfs_fat_sdcard_unmount(MOUNT_POINT, NULL);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Erreur lors du démontage: %s", esp_err_to_name(ret));
+        // Continuer même en cas d'erreur
+    }
+    
+    // NE PAS libérer le bus SPI automatiquement - cela cause des crashes
+    // Le bus sera automatiquement réinitialisé lors de la prochaine tentative de montage
+    ESP_LOGI(TAG, "Démontage terminé (bus SPI conservé)");
+    return ESP_OK;
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "🦇 Chiro Logger - Datalogger pour chiroptères");
@@ -235,13 +258,18 @@ void app_main(void)
     // Configuration initiale
     ESP_LOGI(TAG, "Initialisation du système...");
     
+    // Variable pour suivre le statut de la carte SD
+    bool sd_available = false;
+    
     // Initialisation de la carte SD
     esp_err_t ret = init_sd_card();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Erreur lors de l'initialisation de la carte SD");
         ESP_LOGI(TAG, "Le système continue sans carte SD...");
+        sd_available = false;
     } else {
         ESP_LOGI(TAG, "✅ Carte SD initialisée avec succès");
+        sd_available = true;
         
         // Test d'écriture
         ret = test_sd_card();
@@ -249,13 +277,45 @@ void app_main(void)
             ESP_LOGI(TAG, "✅ Test d'écriture SD réussi");
         } else {
             ESP_LOGE(TAG, "❌ Test d'écriture SD échoué");
+            sd_available = false; // Désactiver si le test échoue
         }
     }
     
     // Boucle principale
     int counter = 0;
+    int sd_retry_counter = 0;
     while (1) {
         ESP_LOGI(TAG, "Système en fonctionnement - Cycle %d", counter++);
+        
+        // Vérifier périodiquement la disponibilité de la carte SD si elle n'est pas disponible
+        if (!sd_available && (counter % 5 == 0)) { // Vérifier toutes les 5 cycles (25 secondes)
+            ESP_LOGI(TAG, "🔍 Tentative de récupération de la carte SD...");
+            
+            // D'abord démonter proprement tout ce qui pourrait être monté
+            unmount_sd_card();
+            
+            // Attendre un peu pour laisser le système se stabiliser
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            
+            // Tenter de réinitialiser la carte SD
+            esp_err_t retry_result = init_sd_card();
+            if (retry_result == ESP_OK) {
+                ESP_LOGI(TAG, "🎉 Carte SD récupérée avec succès!");
+                sd_available = true;
+                sd_retry_counter = 0;
+                
+                // Effectuer un test rapide
+                if (test_sd_card() == ESP_OK) {
+                    ESP_LOGI(TAG, "✅ Test de récupération SD réussi");
+                } else {
+                    ESP_LOGW(TAG, "⚠️  Test de récupération SD échoué");
+                    sd_available = false;
+                }
+            } else {
+                sd_retry_counter++;
+                ESP_LOGW(TAG, "🔄 Récupération SD échouée (tentative %d)", sd_retry_counter);
+            }
+        }
         
         // Simulation d'une mesure toutes les 10 secondes (tous les 2 cycles de 5s)
         if (counter % 2 == 0) {
@@ -265,19 +325,25 @@ void app_main(void)
             ESP_LOGI(TAG, "📊 Simulation: T=%.1f°C, H=%.1f%%", temp, humidity);
             
             // Enregistrer les données dans le fichier CSV (seulement si la SD est disponible)
-            if (ret == ESP_OK) {
+            if (sd_available) {
                 // Générer un timestamp simple pour la démonstration
                 char datetime_str[32];
                 int64_t timestamp = esp_timer_get_time() / 1000000; // Secondes depuis le démarrage
                 snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
                 
-                esp_err_t csv_result = log_data_to_csv("/sdcard/chiro/measurements.csv", 
+                esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
                                                        datetime_str, temp, humidity);
                 if (csv_result == ESP_OK) {
                     ESP_LOGI(TAG, "💾 Données sauvegardées sur SD");
                 } else {
-                    ESP_LOGW(TAG, "⚠️  Échec sauvegarde sur SD");
+                    ESP_LOGW(TAG, "⚠️  Échec sauvegarde sur SD - vérification de la carte...");
+                    // Si l'écriture échoue, marquer la SD comme non disponible et démonter
+                    sd_available = false;
+                    ESP_LOGI(TAG, "🔌 Carte SD déconnectée détectée - démontage...");
+                    unmount_sd_card();
                 }
+            } else {
+                ESP_LOGW(TAG, "⚠️  Carte SD non disponible - données non sauvegardées");
             }
         }
         
