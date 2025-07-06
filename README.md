@@ -43,6 +43,75 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 - Enregistrement sur carte SD au format CSV
 - Remise en sommeil profond (deep sleep)
 
+#### 🔋 Deep Sleep - Optimisation énergétique
+
+Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonomie :
+
+**⚡ Consommation :**
+
+- Mode actif : ~80 mA
+- Deep sleep : ~10 µA (8000x moins !)
+
+**🔄 Cycle de fonctionnement :**
+
+```text
+🚀 Démarrage initial du système
+📊 Cycle de mesure #1
+🌡️  Mesure: T=18.7°C, H=85.4%
+💾 Données sauvegardées sur SD
+📤 Démontage SD avant deep sleep...
+💤 Entrée en deep sleep pour 5 secondes...
+    [5 secondes plus tard]
+⏰ Réveil du deep sleep (timer)
+📊 Cycle de mesure #2
+🌡️  Mesure: T=18.9°C, H=85.8%
+💾 Données sauvegardées sur SD
+💤 Entrée en deep sleep pour 5 secondes...
+    [cycle se répète...]
+```
+
+**🎛️ Configuration :**
+
+- Délai configurable via `DEEP_SLEEP_DURATION_SEC` (actuellement 5 secondes)
+- Suggestions : 30s (monitoring), 300s (économie max), 60s (compromis)
+
+**🛡️ Sécurité des données :**
+
+- Démontage automatique de la carte SD avant chaque sleep
+- Prévient la corruption des fichiers
+- Récupération automatique de la carte SD à chaud
+
+#### 🔄 Gestion robuste de la carte SD (Hot-Plug)
+
+Le système gère intelligemment les insertions/retraits de carte SD :
+
+**🔍 Détection automatique :**
+
+- Détection immédiate d'une déconnexion lors d'une écriture
+- Passage automatique en mode "sans carte SD"
+- Messages explicites dans les logs
+
+**⚡ Récupération automatique :**
+
+- Tentative de récupération toutes les 25 secondes (5 cycles)
+- Test de fonctionnalité avant reprise d'écriture
+- Gestion sécurisée du bus SPI (pas de crash)
+
+**📊 Comportement observé :**
+
+```text
+💾 Données sauvegardées sur SD
+[Retrait carte à chaud]
+❌ Impossible d'ouvrir le fichier CSV
+🔌 Carte SD déconnectée détectée - démontage...
+⚠️  Carte SD non disponible - données non sauvegardées
+[Réinsertion carte]
+🔍 Tentative de récupération de la carte SD...
+🎉 Carte SD récupérée avec succès!
+✅ Test de récupération SD réussi
+💾 Données sauvegardées sur SD
+```
+
 #### 📲 Mode consultation (sans contact)
 
 - L’approche d’un doigt ou badge active un **capteur capacitif** à travers le boîtier étanche
