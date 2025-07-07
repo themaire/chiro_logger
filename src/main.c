@@ -41,7 +41,7 @@ RTC_DATA_ATTR int cycle_counter = 0;
 #define DEEP_SLEEP_DURATION_SEC 5
 
 // Configuration du tampon flash pour économie d'énergie
-#define BUFFER_FLUSH_THRESHOLD 5  // Nombre de mesures avant flush vers SD (5 pour tests, 1000 pour déploiement)
+#define BUFFER_FLUSH_THRESHOLD 500  // Nombre de mesures avant flush vers SD (optimisé pour autonomie)
 
 #define BUFFER_CSV_FILE "/buffer/data_buffer.csv"
 
@@ -50,8 +50,8 @@ esp_err_t init_led(void);
 void blink_led(int count, int delay_ms);
 void print_wakeup_info(void);
 
-// Fonction utilitaire pour enregistrer des données au format CSV
-esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temperature, float humidity)
+// Fonction utilitaire pour enregistrer des données au format CSV avec ID unique
+esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, float temperature, float humidity)
 {
     // Valeurs par défaut si les paramètres sont NULL ou invalides
     if (filepath == NULL) {
@@ -75,10 +75,12 @@ esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temp
     // Si le fichier n'existait pas, écrire l'en-tête
     if (!file_exists) {
         ESP_LOGI(TAG, "📄 Création du fichier CSV avec en-tête: %s", filepath);
-        fprintf(file, "DateTime,Temperature_C,Humidity_%%\n");
+        fprintf(file, "ID,DateTime,Temperature_C,Humidity_%%\n");
     }
     
-    // Écrire les données
+    // Écrire les données avec ID unique en première colonne
+    fprintf(file, "%d,", id);
+    
     if (datetime == NULL) {
         // Générer un timestamp par défaut basé sur esp_timer
         int64_t timestamp = esp_timer_get_time() / 1000000; // Convertir en secondes
@@ -312,8 +314,8 @@ esp_err_t init_flash_buffer(void)
     return ESP_OK;
 }
 
-// Fonction pour ajouter une mesure dans le tampon flash
-esp_err_t add_to_flash_buffer(const char* datetime, float temperature, float humidity)
+// Fonction pour ajouter une mesure dans le tampon flash avec ID unique
+esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, float humidity)
 {
     ESP_LOGI(TAG, "🔋 Ajout mesure au tampon flash...");
     
@@ -334,10 +336,12 @@ esp_err_t add_to_flash_buffer(const char* datetime, float temperature, float hum
     // Si le fichier n'existait pas, écrire l'en-tête
     if (!file_exists) {
         ESP_LOGI(TAG, "📄 Création du tampon CSV avec en-tête");
-        fprintf(file, "DateTime,Temperature_C,Humidity_%%\n");
+        fprintf(file, "ID,DateTime,Temperature_C,Humidity_%%\n");
     }
     
-    // Écrire les données
+    // Écrire les données avec ID unique en première colonne
+    fprintf(file, "%d,", id);
+    
     if (datetime == NULL) {
         int64_t timestamp = esp_timer_get_time() / 1000000;
         fprintf(file, "%lld,", (long long)timestamp);
@@ -561,8 +565,8 @@ void app_main(void)
     int64_t timestamp = esp_timer_get_time() / 1000000;
     snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
     
-    // Ajouter la mesure au tampon flash (mode économie d'énergie)
-    esp_err_t buffer_result = add_to_flash_buffer(datetime_str, temp, humidity);
+    // Ajouter la mesure au tampon flash (mode économie d'énergie) avec ID unique
+    esp_err_t buffer_result = add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
     if (buffer_result == ESP_OK) {
         ESP_LOGI(TAG, "🔋 Mesure stockée dans le tampon flash");
         
@@ -586,7 +590,7 @@ void app_main(void)
         esp_err_t sd_result = init_sd_card();
         if (sd_result == ESP_OK) {
             esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
-                                                   datetime_str, temp, humidity);
+                                                   cycle_counter, datetime_str, temp, humidity);
             if (csv_result == ESP_OK) {
                 ESP_LOGI(TAG, "💾 Données sauvegardées directement sur SD");
             } else {

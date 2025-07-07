@@ -2,7 +2,14 @@
 
 ![Concept du Datalogger Chiro](assets/images/chiro_logger_concept.png)
 
-> 📱 **Application mobile associée :** [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
+> � Tampon: 2/500 mesures
+    [... cycles 3, 4, ... 499, 500...]
+📊 Cycle de mesure #500
+📊 Tampon: 500/500 mesures
+🔄 Seuil atteint - flush vers la carte SD...
+💡 LED: 10 clignotements rapides (flush SD)
+✅ Flush réussi - tampon vidé
+💤 Entrée en deep sleep pour 5 secondes...lication mobile associée :** [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
 >
 > 💡 **Qu'est-ce qu'une PWA ?**  
 > Une Progressive Web App (PWA) est une application web qui fonctionne comme une app mobile native. Elle peut être installée sur smartphone, fonctionne hors-ligne, accède aux APIs natives (Bluetooth, géolocalisation...) et offre une expérience utilisateur fluide. Pas besoin de passer par les stores d'applications !
@@ -81,28 +88,28 @@ Le datalogger utilise un système de **tampon flash interne** pour optimiser l'u
 
 1. **Stockage temporaire** : Les mesures sont d'abord stockées dans la **flash interne de l'ESP32** (partition SPIFFS de 15MB)
 2. **Économie d'énergie** : La carte SD n'est activée que lors du **flush périodique**
-3. **Flush automatique** : Transfert des données vers la SD toutes les **1000 mesures** (configurable)
+3. **Flush automatique** : Transfert des données vers la SD toutes les **500 mesures** (optimisé)
 
 **🕒 Timing avec mesures toutes les 5 secondes :**
 
-- **Mesures 1-999** : Stockées dans le tampon flash
-- **Mesure 1000** : Déclenchement du flush → activation SD → transfert des 1000 mesures → extinction SD
+- **Mesures 1-499** : Stockées dans le tampon flash
+- **Mesure 500** : Déclenchement du flush → activation SD → transfert des 500 mesures → extinction SD
 - **Cycle suivant** : Reprend avec le tampon vide
 
 **⚡ Économie d'énergie réalisée :**
 
 - **Sans tampon** : SD activée à chaque mesure (5s) = 720 activations/heure
-- **Avec tampon** : SD activée toutes les 1000 mesures = 1 activation toutes les **83 heures**
-- **Réduction** : **99.9% d'activations SD en moins** = autonomie considérablement prolongée
+- **Avec tampon** : SD activée toutes les 500 mesures = 1 activation toutes les **42 heures**
+- **Réduction** : **99.8% d'activations SD en moins** = autonomie considérablement prolongée
 
 **🔍 Monitoring dans les logs :**
 
 ```text
-📊 Tampon: 999/1000 mesures
-📊 Tampon: 1000/1000 mesures
+📊 Tampon: 499/500 mesures
+📊 Tampon: 500/500 mesures
 🔄 Seuil atteint - flush vers la carte SD...
-📊 Flush de 1000 mesures vers la SD
-✅ 1000 lignes copiées vers la SD
+📊 Flush de 500 mesures vers la SD
+✅ 500 lignes copiées vers la SD
 🧹 Tampon flash vidé
 ✅ Flush réussi - tampon vidé
 ```
@@ -116,8 +123,8 @@ Le datalogger utilise un système de **tampon flash interne** pour optimiser l'u
 **⚡ Économie d'énergie réalisée :**
 
 - **Sans tampon** : SD activée à chaque mesure (5s) = 720 activations/heure
-- **Avec tampon** : SD activée toutes les 1000 mesures = 1 activation toutes les **83 heures**
-- **Réduction** : **99.9% d'activations SD en moins** = autonomie considérablement prolongée
+- **Avec tampon** : SD activée toutes les 500 mesures = 1 activation toutes les **42 heures**
+- **Réduction** : **99.8% d'activations SD en moins** = autonomie considérablement prolongée
 
 - Mode actif : ~80 mA
 - Deep sleep : ~10 µA (8000x moins !)
@@ -132,6 +139,58 @@ Le datalogger intègre un **système de feedback LED** pour monitorer son foncti
 
 Ce système permet de vérifier visuellement que l'appareil fonctionne sans perturber son cycle de sommeil.
 
+**💡 Innovation RTC : Compteur persistant entre deep sleeps**
+
+🚀 **Pourquoi c'est techniquement stylé :**
+
+La plupart des dataloggers "oublient" combien de mesures ils ont effectuées à chaque réveil. Ce datalogger utilise la **RTC Memory** de l'ESP32 pour maintenir un **compteur global persistant** !
+
+**🔧 Implémentation technique :**
+```c
+// Variable stockée en RTC Memory - survit au deep sleep !
+RTC_DATA_ATTR int cycle_counter = 0;
+
+// À chaque réveil :
+cycle_counter++;  // Le compteur continue de compter !
+ESP_LOGI(TAG, "📊 Cycle de mesure #%d", cycle_counter);
+
+// L'ID est utilisé comme première colonne du CSV
+add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
+```
+
+**📄 Format CSV enrichi :**
+
+Le fichier CSV généré contient maintenant un **ID unique croissant** pour chaque mesure :
+
+```csv
+ID,DateTime,Temperature_C,Humidity_%
+1,1672531200,18.5,85.0
+2,1672531205,18.6,85.2
+3,1672531210,18.7,85.4
+...
+1247,1672535435,19.2,86.1
+```
+
+**✨ Avantages uniques :**
+
+- **Numérotation continue** : Cycles #1, #2, #3... même après des semaines
+- **ID unique dans CSV** : Chaque mesure a un identifiant permanent et croissant
+- **Diagnostic précis** : "Le datalogger a effectué exactement 1247 mesures"  
+- **Détection de pertes** : Si l'ID saute de 100 à 110, on sait que 9 mesures manquent
+- **Consommation nulle** : La RTC Memory ne consomme que quelques µA
+- **Fiabilité totale** : Reset uniquement lors d'un redémarrage complet
+
+**📊 Dans les logs :**
+
+```text
+⏰ Réveil du deep sleep (timer) - Cycle #1247
+📊 Compteur RTC persistant: 1246 ✨ (survit depuis le début!)
+📊 Cycle de mesure #1247
+💾 CSV: ID=1247, T=19.2°C, H=86.1%
+```
+
+> 💡 **Magie technique :** Même après 1000 réveils de deep sleep, le système sait parfaitement qu'il en est à sa 1000ème mesure !
+
 **�🔄 Cycle de fonctionnement avec compteur persistant :**
 
 ```text
@@ -141,7 +200,7 @@ Ce système permet de vérifier visuellement que l'appareil fonctionne sans pert
 💡 LED: 1 clignotement (mesure ajoutée au tampon)
 🌡️  Mesure: T=18.7°C, H=85.4%
 � Mesure stockée dans le tampon flash
-📊 Tampon: 1/5 mesures
+📊 Tampon: 1/500 mesures
 💤 Entrée en deep sleep pour 5 secondes...
     [5 secondes plus tard - REDÉMARRAGE COMPLET]
 ⏰ Réveil du deep sleep (timer) - Cycle #2
@@ -167,7 +226,7 @@ Ce système permet de vérifier visuellement que l'appareil fonctionne sans pert
   - **30 minutes** (1800s) : Monitoring climatique standard - **Autonomie 2+ mois**
   - **1 heure** (3600s) : Surveillance long terme - **Autonomie 4+ mois**
   - **6 heures** (21600s) : Études saisonnières - **Autonomie 2+ ans**
-- **Tampon flash** : `BUFFER_FLUSH_THRESHOLD = 5` (tests) → **1000** (déploiement)
+- **Tampon flash** : `BUFFER_FLUSH_THRESHOLD = 500` (optimisé pour autonomie)
 
 **🧠 Innovations techniques :**
 
@@ -175,6 +234,30 @@ Ce système permet de vérifier visuellement que l'appareil fonctionne sans pert
 - **Partition SPIFFS** : Tampon flash de 15MB pour optimiser l'écriture SD
 - **Hot-plug SD** : Gestion robuste des déconnexions/reconnexions à chaud
 - **Feedback LED** : Monitoring visuel sans perturbation du cycle de sommeil
+
+**🔢 Compteur de cycles persistant (RTC Memory) :**
+
+Innovation technique unique : le datalogger maintient un **compteur de mesures global** qui **persiste entre tous les cycles de deep sleep** !
+
+- **Stockage RTC** : Variable `cycle_counter` stockée dans la RTC Memory de l'ESP32
+- **Survit au deep sleep** : Contrairement à la RAM classique, la RTC Memory conserve ses données
+- **Consommation ultra-faible** : La RTC Memory ne consomme que quelques µA
+- **Redémarrage automatique** : Reset du compteur uniquement lors d'un redémarrage complet (power-on)
+
+```c
+// Innovation technique : persistance RTC
+RTC_DATA_ATTR int cycle_counter = 0;  // Survit au deep sleep !
+```
+
+**🎯 Intérêt pratique :**
+
+- **Traçabilité absolue** : Chaque ligne CSV a un ID unique et croissant depuis le début
+- **Diagnostic avancé** : Permet de savoir exactement combien de mesures ont été effectuées
+- **Détection de pertes** : Identification immédiate des données manquantes (trous dans la séquence)
+- **Analyse de continuité** : Vérification de l'intégrité des données collectées
+- **Récupération intelligente** : En cas de problème SD, on sait exactement combien de données sont perdues
+
+> 💡 **Pourquoi c'est stylé :** La plupart des dataloggers perdent cette information à chaque réveil. Ici, même après 1000 cycles de deep sleep, le système "sait" qu'il en est à sa 1000ème mesure ET l'enregistre dans le CSV !
 
 **🛡️ Sécurité des données :**
 
