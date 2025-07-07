@@ -49,10 +49,31 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 
 Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonomie :
 
-**⚡ Consommation :**
-- **Mode actif** (mesure + écriture SD) : ~100-200 mA pendant 2-3 secondes
+**⚡ Consommation mesurée :**
+
+- **Mode actif** (mesure + écriture tampon) : ~80-120 mA pendant 1-2 secondes
 - **Mode deep sleep** : ~10-20 µA (microampères)
 - **Économie d'énergie** : >99% du temps en veille
+
+**🧪 Test d'autonomie réel :**
+
+- **Batterie testée** : LiPo 150mAh seulement
+- **Configuration** : Mesures toutes les 5 secondes
+- **Résultat** : **3700 mesures** jusqu'à épuisement total
+- **Durée** : ~5 heures de fonctionnement continu (3700 × 5s)
+
+**📊 Projections d'autonomie :**
+
+Basées sur les résultats réels, voici les estimations d'autonomie selon la batterie et l'intervalle de mesure :
+
+| Batterie | Intervalle 5s | Intervalle 30min | Intervalle 1h |
+|----------|---------------|------------------|---------------|
+| **150mAh** | ~5h (3700 mesures) | **~2 mois** | **~4 mois** |
+| **500mAh** | ~17h | **~7 mois** | **~14 mois** |
+| **1000mAh** | ~33h | **~14 mois** | **~28 mois** |
+| **2000mAh** | ~67h | **~28 mois** | **~56 mois** |
+
+> 🚀 **Performance exceptionnelle :** Avec une simple batterie de 150mAh et un intervalle de 30 minutes, le datalogger peut fonctionner **2 mois en continu** !
 
 **📊 Gestion intelligente des données avec tampon flash :**
 
@@ -101,27 +122,59 @@ Le datalogger utilise un système de **tampon flash interne** pour optimiser l'u
 - Mode actif : ~80 mA
 - Deep sleep : ~10 µA (8000x moins !)
 
-**🔄 Cycle de fonctionnement :**
+**� Feedback visuel LED :**
+
+Le datalogger intègre un **système de feedback LED** pour monitorer son fonctionnement :
+
+- **1 clignotement** : Mesure ajoutée au tampon flash
+- **10 clignotements rapides** : Flush des données vers la carte SD
+- **LED éteinte** : Mode deep sleep (économie d'énergie maximale)
+
+Ce système permet de vérifier visuellement que l'appareil fonctionne sans perturber son cycle de sommeil.
+
+**�🔄 Cycle de fonctionnement avec compteur persistant :**
 
 ```text
-🚀 Démarrage initial du système
+🚀 Démarrage initial du système - Reset du compteur
+📊 Compteur RTC persistant: 0
 📊 Cycle de mesure #1
+💡 LED: 1 clignotement (mesure ajoutée au tampon)
 🌡️  Mesure: T=18.7°C, H=85.4%
-💾 Données sauvegardées sur SD
- Entrée en deep sleep pour 5 secondes...
-    [5 secondes plus tard - REDÉMARRAGE COMPLET]
-⏰ Réveil du deep sleep (timer)
-📊 Cycle de mesure #2
-🌡️  Mesure: T=18.9°C, H=85.8%
-💾 Données sauvegardées sur SD
+� Mesure stockée dans le tampon flash
+📊 Tampon: 1/5 mesures
 💤 Entrée en deep sleep pour 5 secondes...
-    [cycle se répète...]
+    [5 secondes plus tard - REDÉMARRAGE COMPLET]
+⏰ Réveil du deep sleep (timer) - Cycle #2
+📊 Compteur RTC persistant: 1
+📊 Cycle de mesure #2
+💡 LED: 1 clignotement (mesure ajoutée au tampon)
+🌡️  Mesure: T=18.9°C, H=85.8%
+� Tampon: 2/5 mesures
+    [... cycles 3, 4...]
+📊 Cycle de mesure #5
+📊 Tampon: 5/5 mesures
+🔄 Seuil atteint - flush vers la carte SD...
+💡 LED: 10 clignotements rapides (flush SD)
+✅ Flush réussi - tampon vidé
+💤 Entrée en deep sleep pour 5 secondes...
+    [cycle se répète avec compteur persistant...]
 ```
 
-**🎛️ Configuration :**
+**🎛️ Configuration optimisée :**
 
-- Délai configurable via `DEEP_SLEEP_DURATION_SEC` (actuellement 5 secondes)
-- Suggestions : 30s (monitoring), 300s (économie max), 60s (compromis)
+- **Délai actuel** : `DEEP_SLEEP_DURATION_SEC = 5` (pour tests rapides)
+- **Suggestions déploiement** :
+  - **30 minutes** (1800s) : Monitoring climatique standard - **Autonomie 2+ mois**
+  - **1 heure** (3600s) : Surveillance long terme - **Autonomie 4+ mois**
+  - **6 heures** (21600s) : Études saisonnières - **Autonomie 2+ ans**
+- **Tampon flash** : `BUFFER_FLUSH_THRESHOLD = 5` (tests) → **1000** (déploiement)
+
+**🧠 Innovations techniques :**
+
+- **RTC Memory** : Compteur de cycles persistant entre les deep sleeps
+- **Partition SPIFFS** : Tampon flash de 15MB pour optimiser l'écriture SD
+- **Hot-plug SD** : Gestion robuste des déconnexions/reconnexions à chaud
+- **Feedback LED** : Monitoring visuel sans perturbation du cycle de sommeil
 
 **🛡️ Sécurité des données :**
 

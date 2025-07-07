@@ -19,6 +19,9 @@
 
 static const char *TAG = "CHIRO_LOGGER";
 
+// Variable stockée en RTC memory pour persister entre les deep sleeps
+RTC_DATA_ATTR int cycle_counter = 0;
+
 // Configuration des pins pour le slot SD sur LOLIN D32 PRO
 #define PIN_NUM_MISO 19
 #define PIN_NUM_MOSI 23
@@ -45,6 +48,7 @@ static const char *TAG = "CHIRO_LOGGER";
 // Déclarations de fonctions
 esp_err_t init_led(void);
 void blink_led(int count, int delay_ms);
+void print_wakeup_info(void);
 
 // Fonction utilitaire pour enregistrer des données au format CSV
 esp_err_t log_data_to_csv(const char* filepath, const char* datetime, float temperature, float humidity)
@@ -434,7 +438,7 @@ esp_err_t flush_buffer_to_sd(void)
     ESP_LOGI(TAG, "✅ %d lignes copiées vers la SD", lines_copied);
     
     // Clignotement LED : 20 fois pour flush vers SD
-    blink_led(20, 50);
+    blink_led(10, 30);
     
     // Vider le tampon après transfert réussi
     if (remove(BUFFER_CSV_FILE) == 0) {
@@ -463,7 +467,7 @@ esp_err_t init_led(void)
     esp_err_t ret = gpio_config(&io_conf);
     if (ret == ESP_OK) {
         gpio_set_level(LED_PIN, 0); // LED éteinte au démarrage
-        ESP_LOGI(TAG, "✅ LED initialisée sur pin %d", LED_PIN);
+        // ESP_LOGI(TAG, "✅ LED initialisée sur pin %d", LED_PIN);
     }
     return ret;
 }
@@ -471,7 +475,7 @@ esp_err_t init_led(void)
 // Fonction pour faire clignoter la LED
 void blink_led(int count, int delay_ms)
 {
-    ESP_LOGI(TAG, "💡 LED: %d clignotement(s)", count);
+    // ESP_LOGI(TAG, "💡 LED: %d clignotement(s)", count);
     for (int i = 0; i < count; i++) {
         gpio_set_level(LED_PIN, 1); // Allumer
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
@@ -482,23 +486,36 @@ void blink_led(int count, int delay_ms)
     }
 }
 
+// Fonction de diagnostic du réveil
+void print_wakeup_info(void)
+{
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    
+    switch(wakeup_reason) {
+        case ESP_SLEEP_WAKEUP_TIMER:
+            ESP_LOGI(TAG, "⏰ Réveil du deep sleep (timer) - Cycle #%d", cycle_counter + 1);
+            break;
+        case ESP_SLEEP_WAKEUP_UNDEFINED:
+            ESP_LOGI(TAG, "🚀 Démarrage initial du système - Reset du compteur");
+            cycle_counter = 0; // Reset du compteur au premier démarrage
+            break;
+        default:
+            ESP_LOGI(TAG, "🔄 Réveil pour cause inconnue (%d) - Cycle #%d", wakeup_reason, cycle_counter + 1);
+            break;
+    }
+    
+    // Afficher des informations sur la RTC memory
+    ESP_LOGI(TAG, "📊 Compteur RTC persistant: %d", cycle_counter);
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "🦇 Chiro Logger - Datalogger pour chiroptères");
     ESP_LOGI(TAG, "Version: 1.0.0");
     ESP_LOGI(TAG, "Plateforme: LOLIN D32 PRO (ESP32)");
     
-    // Vérifier la cause du réveil
-    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-    switch(wakeup_reason) {
-        case ESP_SLEEP_WAKEUP_TIMER:
-            ESP_LOGI(TAG, "⏰ Réveil du deep sleep (timer)");
-            break;
-        case ESP_SLEEP_WAKEUP_UNDEFINED:
-        default:
-            ESP_LOGI(TAG, "🚀 Démarrage initial du système");
-            break;
-    }
+    // Diagnostic du réveil et gestion du compteur persistant
+    print_wakeup_info();
     
     // Configuration initiale
     ESP_LOGI(TAG, "Initialisation du système...");
@@ -507,12 +524,13 @@ void app_main(void)
     esp_err_t ret = init_led();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "⚠️  Impossible d'initialiser la LED");
-    } else {
+    } 
+    // else {
         // Test LED au démarrage : 3 clignotements pour confirmer que ça fonctionne
-        ESP_LOGI(TAG, "🔍 Test LED au démarrage...");
-        blink_led(3, 200);
-        vTaskDelay(pdMS_TO_TICKS(500)); // Pause avant de continuer
-    }
+        // ESP_LOGI(TAG, "🔍 Test LED au démarrage...");
+        // blink_led(3, 200);
+        // vTaskDelay(pdMS_TO_TICKS(500)); // Pause avant de continuer
+    // }
     
     // Initialiser le tampon flash énergétique
     ret = init_flash_buffer();
@@ -521,21 +539,20 @@ void app_main(void)
         ESP_LOGI(TAG, "Mode dégradé: écriture directe sur SD");
         // Continuer en mode dégradé si le tampon flash échoue
     } else {
-        ESP_LOGI(TAG, "✅ Tampon flash initialisé - mode économie d'énergie activé");
+        ESP_LOGI(TAG, "✅ Tampon flash initialisé");
     }
     
     // Boucle principale - effectuer UNE mesure puis dormir
-    static int counter = 0; // Static pour persister entre les réveils
-    counter++; // Incrémenter le compteur à chaque réveil
+    cycle_counter++; // Incrémenter le compteur à chaque réveil (persiste grâce à RTC_DATA_ATTR)
     
-    ESP_LOGI(TAG, "📊 Cycle de mesure #%d", counter);
+    ESP_LOGI(TAG, "📊 Cycle de mesure #%d", cycle_counter);
     
     // Signal LED de début de cycle
-    blink_led(1, 50);
+    blink_led(1, 30);
     
     // Effectuer une mesure
-    float temp = 18.5 + (counter * 0.1);
-    float humidity = 85.0 + (counter * 0.2);
+    float temp = 18.5 + (cycle_counter * 0.1);
+    float humidity = 85.0 + (cycle_counter * 0.2);
     
     ESP_LOGI(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
     
