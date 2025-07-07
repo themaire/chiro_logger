@@ -2,7 +2,7 @@
 
 ![Concept du Datalogger Chiro](assets/images/chiro_logger_concept.png)
 
-** [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
+> A aller voir ..... [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
 >
 > 💡 **Qu'est-ce qu'une PWA ?**  
 > Une Progressive Web App (PWA) est une application web qui fonctionne comme une app mobile native. Elle peut être installée sur smartphone, fonctionne hors-ligne, accède aux APIs natives (Bluetooth, géolocalisation...) et offre une expérience utilisateur fluide. Pas besoin de passer par les stores d'applications !
