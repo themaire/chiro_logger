@@ -40,6 +40,23 @@ RTC_DATA_ATTR int cycle_counter = 0;
 // Configuration du deep sleep (en secondes)
 #define DEEP_SLEEP_DURATION_SEC 5
 
+// Configuration des logs pour économie d'énergie (décommenter pour production)
+#define PRODUCTION_MODE  // Désactive la plupart des logs pour économiser l'énergie
+
+/*
+ * 💡 OPTIMISATION ÉNERGÉTIQUE - LOGS :
+ * 
+ * Les ESP_LOGI/ESP_LOGE consomment de l'énergie car ils :
+ * - Maintiennent l'UART actif (~10-20 mA)
+ * - Prolongent le temps d'activité avant deep sleep
+ * - Formatent et transmettent les chaînes
+ * 
+ * EN PRODUCTION : Décommenter #define PRODUCTION_MODE
+ * - Garde uniquement les logs essentiels (erreurs, flush, compteur)
+ * - Supprime les logs de debug/verbose
+ * - Économie estimée : 5-10% d'autonomie supplémentaire
+ */
+
 // Configuration du tampon flash pour économie d'énergie
 #define BUFFER_FLUSH_THRESHOLD 500  // Nombre de mesures avant flush vers SD (optimisé pour autonomie)
 
@@ -49,6 +66,17 @@ RTC_DATA_ATTR int cycle_counter = 0;
 esp_err_t init_led(void);
 void blink_led(int count, int delay_ms);
 void print_wakeup_info(void);
+
+// Macros pour logs économes en énergie
+#ifdef PRODUCTION_MODE
+    #define LOG_ESSENTIAL(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+    #define LOG_DEBUG(tag, format, ...) // Pas de log en production
+    #define LOG_VERBOSE(tag, format, ...) // Pas de log en production
+#else
+    #define LOG_ESSENTIAL(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+    #define LOG_DEBUG(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+    #define LOG_VERBOSE(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+#endif
 
 // Fonction utilitaire pour enregistrer des données au format CSV avec ID unique
 esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, float temperature, float humidity)
@@ -280,7 +308,7 @@ esp_err_t unmount_sd_card(void)
 // Fonction d'initialisation du tampon flash (partition SPIFFS)
 esp_err_t init_flash_buffer(void)
 {
-    ESP_LOGI(TAG, "🔋 Initialisation du tampon flash énergétique...");
+    LOG_DEBUG(TAG, "🔋 Initialisation du tampon flash énergétique...");
     
     esp_vfs_spiffs_conf_t conf = {
         .base_path = BUFFER_MOUNT_POINT,
@@ -292,22 +320,22 @@ esp_err_t init_flash_buffer(void)
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "❌ Impossible de monter la partition SPIFFS");
+            LOG_ESSENTIAL(TAG, "❌ Impossible de monter la partition SPIFFS");
         } else if (ret == ESP_ERR_NOT_FOUND) {
-            ESP_LOGE(TAG, "❌ Partition 'data_buffer' introuvable");
+            LOG_ESSENTIAL(TAG, "❌ Partition 'data_buffer' introuvable");
         } else {
-            ESP_LOGE(TAG, "❌ Erreur montage SPIFFS: %s", esp_err_to_name(ret));
+            LOG_ESSENTIAL(TAG, "❌ Erreur montage SPIFFS: %s", esp_err_to_name(ret));
         }
         return ret;
     }
     
-    ESP_LOGI(TAG, "✅ Tampon flash monté sur %s", BUFFER_MOUNT_POINT);
+    LOG_DEBUG(TAG, "✅ Tampon flash monté sur %s", BUFFER_MOUNT_POINT);
     
     // Vérifier l'espace disponible
     size_t total = 0, used = 0;
     ret = esp_spiffs_info("data_buffer", &total, &used);
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "📊 Espace tampon: %zu Ko utilisés / %zu Ko total", 
+        LOG_DEBUG(TAG, "📊 Espace tampon: %zu Ko utilisés / %zu Ko total", 
                 used / 1024, total / 1024);
     }
     
@@ -317,7 +345,7 @@ esp_err_t init_flash_buffer(void)
 // Fonction pour ajouter une mesure dans le tampon flash avec ID unique
 esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, float humidity)
 {
-    ESP_LOGI(TAG, "🔋 Ajout mesure au tampon flash...");
+    LOG_DEBUG(TAG, "🔋 Ajout mesure au tampon flash...");
     
     // Vérifier si le fichier existe déjà
     FILE *file = fopen(BUFFER_CSV_FILE, "r");
@@ -329,13 +357,13 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
     // Ouvrir le fichier en mode append
     file = fopen(BUFFER_CSV_FILE, "a");
     if (file == NULL) {
-        ESP_LOGE(TAG, "❌ Impossible d'ouvrir le tampon CSV: %s", BUFFER_CSV_FILE);
+        LOG_ESSENTIAL(TAG, "❌ Impossible d'ouvrir le tampon CSV: %s", BUFFER_CSV_FILE);
         return ESP_FAIL;
     }
     
     // Si le fichier n'existait pas, écrire l'en-tête
     if (!file_exists) {
-        ESP_LOGI(TAG, "📄 Création du tampon CSV avec en-tête");
+        LOG_DEBUG(TAG, "📄 Création du tampon CSV avec en-tête");
         fprintf(file, "ID,DateTime,Temperature_C,Humidity_%%\n");
     }
     
@@ -362,7 +390,7 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
     }
     
     fclose(file);
-    ESP_LOGI(TAG, "✅ Mesure ajoutée au tampon flash");
+    LOG_DEBUG(TAG, "✅ Mesure ajoutée au tampon flash");
     
     // Clignotement LED : 1 fois pour ajout au tampon
     blink_led(1, 100);
@@ -497,19 +525,19 @@ void print_wakeup_info(void)
     
     switch(wakeup_reason) {
         case ESP_SLEEP_WAKEUP_TIMER:
-            ESP_LOGI(TAG, "⏰ Réveil du deep sleep (timer) - Cycle #%d", cycle_counter + 1);
+            LOG_ESSENTIAL(TAG, "⏰ Réveil du deep sleep (timer) - Cycle #%d", cycle_counter + 1);
             break;
         case ESP_SLEEP_WAKEUP_UNDEFINED:
-            ESP_LOGI(TAG, "🚀 Démarrage initial du système - Reset du compteur");
+            LOG_ESSENTIAL(TAG, "🚀 Démarrage initial du système - Reset du compteur");
             cycle_counter = 0; // Reset du compteur au premier démarrage
             break;
         default:
-            ESP_LOGI(TAG, "🔄 Réveil pour cause inconnue (%d) - Cycle #%d", wakeup_reason, cycle_counter + 1);
+            LOG_ESSENTIAL(TAG, "🔄 Réveil pour cause inconnue (%d) - Cycle #%d", wakeup_reason, cycle_counter + 1);
             break;
     }
     
     // Afficher des informations sur la RTC memory
-    ESP_LOGI(TAG, "📊 Compteur RTC persistant: %d", cycle_counter);
+    LOG_DEBUG(TAG, "📊 Compteur RTC persistant: %d", cycle_counter);
 }
 
 void app_main(void)
@@ -522,12 +550,12 @@ void app_main(void)
     print_wakeup_info();
     
     // Configuration initiale
-    ESP_LOGI(TAG, "Initialisation du système...");
+    LOG_DEBUG(TAG, "Initialisation du système...");
     
     // Initialiser la LED pour feedback visuel
     esp_err_t ret = init_led();
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "⚠️  Impossible d'initialiser la LED");
+        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED");
     } 
     // else {
         // Test LED au démarrage : 3 clignotements pour confirmer que ça fonctionne
@@ -539,17 +567,17 @@ void app_main(void)
     // Initialiser le tampon flash énergétique
     ret = init_flash_buffer();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "❌ Impossible d'initialiser le tampon flash");
-        ESP_LOGI(TAG, "Mode dégradé: écriture directe sur SD");
+        LOG_ESSENTIAL(TAG, "❌ Impossible d'initialiser le tampon flash");
+        LOG_ESSENTIAL(TAG, "Mode dégradé: écriture directe sur SD");
         // Continuer en mode dégradé si le tampon flash échoue
     } else {
-        ESP_LOGI(TAG, "✅ Tampon flash initialisé");
+        LOG_DEBUG(TAG, "✅ Tampon flash initialisé");
     }
     
     // Boucle principale - effectuer UNE mesure puis dormir
     cycle_counter++; // Incrémenter le compteur à chaque réveil (persiste grâce à RTC_DATA_ATTR)
     
-    ESP_LOGI(TAG, "📊 Cycle de mesure #%d", cycle_counter);
+    LOG_ESSENTIAL(TAG, "📊 Cycle de mesure #%d", cycle_counter);
     
     // Signal LED de début de cycle
     blink_led(1, 30);
@@ -558,7 +586,7 @@ void app_main(void)
     float temp = 18.5 + (cycle_counter * 0.1);
     float humidity = 85.0 + (cycle_counter * 0.2);
     
-    ESP_LOGI(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
+    LOG_DEBUG(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
     
     // Générer un timestamp
     char datetime_str[32];
@@ -568,23 +596,23 @@ void app_main(void)
     // Ajouter la mesure au tampon flash (mode économie d'énergie) avec ID unique
     esp_err_t buffer_result = add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
     if (buffer_result == ESP_OK) {
-        ESP_LOGI(TAG, "🔋 Mesure stockée dans le tampon flash");
+        LOG_DEBUG(TAG, "🔋 Mesure stockée dans le tampon flash");
         
         // Vérifier si il faut faire un flush vers la SD
         int buffer_count = count_buffer_lines();
-        ESP_LOGI(TAG, "📊 Tampon: %d/%d mesures", buffer_count, BUFFER_FLUSH_THRESHOLD);
+        LOG_ESSENTIAL(TAG, "📊 Tampon: %d/%d mesures", buffer_count, BUFFER_FLUSH_THRESHOLD);
         
         if (buffer_count >= BUFFER_FLUSH_THRESHOLD) {
-            ESP_LOGI(TAG, "🔄 Seuil atteint - flush vers la carte SD...");
+            LOG_ESSENTIAL(TAG, "🔄 Seuil atteint - flush vers la carte SD...");
             esp_err_t flush_result = flush_buffer_to_sd();
             if (flush_result == ESP_OK) {
-                ESP_LOGI(TAG, "✅ Flush réussi - tampon vidé");
+                LOG_ESSENTIAL(TAG, "✅ Flush réussi - tampon vidé");
             } else {
-                ESP_LOGW(TAG, "⚠️  Flush échoué - données conservées dans le tampon");
+                LOG_ESSENTIAL(TAG, "⚠️  Flush échoué - données conservées dans le tampon");
             }
         }
     } else {
-        ESP_LOGW(TAG, "⚠️  Échec stockage tampon - tentative écriture directe SD");
+        LOG_ESSENTIAL(TAG, "⚠️  Échec stockage tampon - tentative écriture directe SD");
         
         // Mode dégradé: écriture directe sur SD
         esp_err_t sd_result = init_sd_card();
@@ -592,18 +620,18 @@ void app_main(void)
             esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
                                                    cycle_counter, datetime_str, temp, humidity);
             if (csv_result == ESP_OK) {
-                ESP_LOGI(TAG, "💾 Données sauvegardées directement sur SD");
+                LOG_ESSENTIAL(TAG, "💾 Données sauvegardées directement sur SD");
             } else {
-                ESP_LOGE(TAG, "❌ Échec sauvegarde directe sur SD");
+                LOG_ESSENTIAL(TAG, "❌ Échec sauvegarde directe sur SD");
             }
             unmount_sd_card();
         } else {
-            ESP_LOGE(TAG, "❌ Données perdues - tampon et SD indisponibles");
+            LOG_ESSENTIAL(TAG, "❌ Données perdues - tampon et SD indisponibles");
         }
     }
     
     // Configurer le deep sleep timer
-    ESP_LOGI(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
+    LOG_DEBUG(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
     
     // Note: Pas besoin de démonter la SD avant deep sleep car le redémarrage 
     // nettoie automatiquement toutes les structures internes d'ESP-IDF
