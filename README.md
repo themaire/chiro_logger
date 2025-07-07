@@ -1,6 +1,6 @@
 # 🦇 Projet de Datalogger Température & Humidité pour Cavités à Chiroptères
 
-![ScreenShot]('src/ChatGPT Image 7 juil. 2025, 17_28_09.png')
+![Concept du Datalogger Chiro](assets/images/chiro_logger_concept.png)
 
 > 📱 **Application mobile associée :** [Angular Chiro App](https://github.com/themaire/angular_chiro_app) - PWA pour la récupération des données via Bluetooth BLE
 >
