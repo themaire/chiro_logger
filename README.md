@@ -58,12 +58,14 @@ Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonom
 **🧪 Tests d'autonomie réels :**
 
 **🔋 Test initial (mode debug) :**
+
 - **Batterie testée** : LiPo 150mAh seulement
 - **Configuration** : Mesures toutes les 5 secondes
 - **Résultat** : **3700 mesures** jusqu'à épuisement total
 - **Durée** : ~5 heures de fonctionnement continu
 
 **🚀 Test optimisé (mode production ultra-silencieux) :**
+
 - **Batterie testée** : LiPo 150mAh (même batterie)
 - **Configuration** : Mesures toutes les 5 secondes
 - **Résultat** : **6714 mesures** jusqu'à épuisement total ✨
@@ -140,13 +142,14 @@ Le datalogger intègre un **système de feedback LED** pour monitorer son foncti
 
 Ce système permet de vérifier visuellement que l'appareil fonctionne sans perturber son cycle de sommeil.
 
-**💡 Innovation RTC : Compteur persistant entre deep sleeps**
+## 💡 Innovation RTC : Compteur persistant entre deep sleeps
 
 🚀 **Pourquoi c'est techniquement stylé :**
 
 La plupart des dataloggers "oublient" combien de mesures ils ont effectuées à chaque réveil. Ce datalogger utilise la **RTC Memory** de l'ESP32 pour maintenir un **compteur global persistant** !
 
 **🔧 Implémentation technique :**
+
 ```c
 // Variable stockée en RTC Memory - survit au deep sleep !
 RTC_DATA_ATTR int cycle_counter = 0;
@@ -316,3 +319,71 @@ L'amélioration spectaculaire de **+81% d'autonomie** démontre l'efficacité de
 | **Production optimisé** | **6714** | **~9h20** | **+81%** |
 
 **💡 Conclusion :** Les optimisations de logs et de gestion énergétique permettent de **quasi-doubler l'autonomie** !
+
+## 📡 Mode transfert Bluetooth BLE
+
+### 🔄 Récupération des données sans contact
+
+Le datalogger intègre un **mode transfert BLE** permettant de récupérer les données stockées **sans ouvrir le boîtier** :
+
+**🎛️ Activation du mode transfert :**
+
+- **Déclencheur** : Appui sur bouton GPIO0 (BOOT) pendant le deep sleep
+- **Réveil automatique** : L'ESP32 détecte l'appui et active le BLE
+- **Service GATT** : Service personnalisé avec UUIDs 128 bits
+  - **Service :** `12345678-1234-1234-1234-123456789ABC`
+  - **Caractéristique données :** `87654321-4321-4321-4321-CBA987654321`
+- **Publicité active** : Device visible comme "ChiroLogger"
+- **Connexion PWA** : L'application web se connecte automatiquement
+
+**⚡ Fonctionnement optimisé :**
+
+- **Timeout intelligent** : Mode BLE actif pendant 5 minutes maximum
+- **Retour automatique** : Retour en deep sleep après transfert ou timeout
+- **Économie d'énergie** : BLE activé uniquement à la demande
+- **Feedback LED** : Indication visuelle du mode actif
+
+**📱 Compatibilité PWA :**
+
+Le système fonctionne avec l'[Angular Chiro App](https://github.com/themaire/angular_chiro_app), une PWA qui :
+
+- Se connecte automatiquement au datalogger via Web Bluetooth API
+- Récupère et affiche les données CSV en temps réel  
+- Fonctionne sur smartphone/tablette sans installation
+- Permet l'export et l'analyse des données sur le terrain
+
+**🛠️ Implémentation technique :**
+
+```c
+// Structure modulaire du composant BLE
+components/ble_transfer/
+├── ble_manager.h        // API publique + UUIDs
+├── ble_manager.c        // Service GATT + callbacks + conversion UUID
+└── CMakeLists.txt       // Dépendances BT (bt, nvs_flash)
+
+// Conversion UUID correcte (little-endian pour ESP32)
+static void uuid_string_to_bin(const char *uuid_str, uint8_t *uuid_bin);
+
+// Séquence de connexion BLE
+1. ESP_GATTS_REG_EVT -> Création service GATT
+2. ESP_GATTS_CREATE_EVT -> Ajout caractéristique données  
+3. ESP_GATTS_ADD_CHAR_EVT -> Service démarré
+4. ESP_GATTS_CONNECT_EVT -> Client connecté, publicité arrêtée
+5. ESP_GATTS_READ_EVT -> Envoi des données CSV
+
+// Intégration dans main.c
+esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+    handle_transfer_mode();  // Mode BLE actif
+} else {
+    perform_measurement();   // Mode normal
+}
+```
+
+**🔒 Sécurité et fiabilité :**
+
+- **Données en lecture seule** : Aucune modification possible via BLE
+- **Mode temporaire** : BLE désactivé en fonctionnement normal
+- **Impact nul sur l'autonomie** : Mode transfert purement optionnel
+
+Cette innovation permet une **récupération des données totalement non-intrusive**, essentielle pour les études sur terrain sensible.

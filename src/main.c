@@ -16,6 +16,8 @@
 #include <esp_spiffs.h>
 #include <esp_vfs_semihost.h>
 #include <driver/gpio.h>
+#include <driver/rtc_io.h>
+#include "ble_manager.h"
 
 static const char *TAG = "CHIRO_LOGGER";
 
@@ -30,6 +32,10 @@ RTC_DATA_ATTR int cycle_counter = 0;
 
 // Configuration LED pour feedback visuel
 #define LED_PIN 5  // LED intégrée sur LOLIN D32 PRO (alternative si GPIO 2 ne fonctionne pas)
+
+// Configuration du bouton de réveil pour mode transfert BLE
+#define WAKEUP_BUTTON_PIN GPIO_NUM_0  // Bouton BOOT sur LOLIN D32 PRO
+#define WAKEUP_BUTTON_LEVEL 0         // Niveau bas quand appuyé (pull-up interne)
 
 // Point de montage de la carte SD
 #define MOUNT_POINT "/sdcard"
@@ -66,6 +72,8 @@ RTC_DATA_ATTR int cycle_counter = 0;
 esp_err_t init_led(void);
 void blink_led(int count, int delay_ms);
 void print_wakeup_info(void);
+esp_err_t init_wakeup_button(void);
+void handle_transfer_mode(void);
 
 // Macros pour logs économes en énergie
 #ifdef PRODUCTION_MODE
@@ -527,6 +535,9 @@ void print_wakeup_info(void)
         case ESP_SLEEP_WAKEUP_TIMER:
             LOG_ESSENTIAL(TAG, "⏰ Réveil du deep sleep (timer) - Cycle #%d", cycle_counter + 1);
             break;
+        case ESP_SLEEP_WAKEUP_EXT0:
+            LOG_ESSENTIAL(TAG, "🔘 Réveil du deep sleep (bouton) - Mode transfert BLE activé!");
+            break;
         case ESP_SLEEP_WAKEUP_UNDEFINED:
             LOG_ESSENTIAL(TAG, "🚀 Démarrage initial du système - Reset du compteur");
             cycle_counter = 0; // Reset du compteur au premier démarrage
@@ -540,6 +551,108 @@ void print_wakeup_info(void)
     LOG_DEBUG(TAG, "📊 Compteur RTC persistant: %d", cycle_counter);
 }
 
+// Fonction d'initialisation du bouton de réveil
+esp_err_t init_wakeup_button(void)
+{
+    // Configurer le bouton comme entrée avec pull-up
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << WAKEUP_BUTTON_PIN),
+        .pull_down_en = 0,
+        .pull_up_en = 1,  // Pull-up interne activé
+    };
+    
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "❌ Erreur configuration bouton: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Configurer le réveil par EXT0 (niveau bas = bouton appuyé)
+    ret = esp_sleep_enable_ext0_wakeup(WAKEUP_BUTTON_PIN, WAKEUP_BUTTON_LEVEL);
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "❌ Erreur configuration réveil EXT0: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    LOG_DEBUG(TAG, "✅ Bouton de réveil configuré sur GPIO %d", WAKEUP_BUTTON_PIN);
+    return ESP_OK;
+}
+
+// Fonction pour gérer le mode transfert BLE
+void handle_transfer_mode(void)
+{
+    LOG_ESSENTIAL(TAG, "🔘 Activation du mode transfert BLE...");
+    
+    // Signal LED spécial pour mode transfert : 5 clignotements rapides
+    blink_led(5, 100);
+    
+    // Initialiser le module BLE
+    esp_err_t ret = ble_manager_init();
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "❌ Erreur initialisation BLE: %s", esp_err_to_name(ret));
+        LOG_ESSENTIAL(TAG, "💤 Retour au mode normal...");
+        return;
+    }
+    
+    // Démarrer le mode transfert
+    ret = ble_manager_start_transfer_mode();
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "❌ Erreur démarrage mode transfert: %s", esp_err_to_name(ret));
+        ble_manager_stop();
+        return;
+    }
+    
+    LOG_ESSENTIAL(TAG, "📡 Mode transfert BLE actif - En attente de connexion PWA...");
+    LOG_ESSENTIAL(TAG, "💡 Ouvrez l'application PWA ChiroLogger pour récupérer les données");
+    
+    // Boucle d'attente avec timeout
+    int timeout_counter = 0;
+    const int max_timeout = BLE_TRANSFER_TIMEOUT_SEC;
+    
+    while (timeout_counter < max_timeout) {
+        ble_state_t state = ble_manager_get_state();
+        
+        if (state == BLE_STATE_STOPPED) {
+            // Transfert terminé ou arrêté
+            break;
+        }
+        
+        // Vérifier le timeout du module BLE
+        if (ble_manager_check_timeout()) {
+            break;
+        }
+        
+        // Signal LED périodique en mode transfert
+        if (state == BLE_STATE_ADVERTISING) {
+            blink_led(2, 50);  // 2 clignotements : en attente de connexion
+        } else if (state == BLE_STATE_CONNECTED) {
+            blink_led(3, 50);  // 3 clignotements : client connecté
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Attendre 1 seconde
+        timeout_counter++;
+    }
+    
+    // Afficher les statistiques du transfert
+    ble_transfer_stats_t stats;
+    if (ble_manager_get_transfer_stats(&stats) == ESP_OK) {
+        LOG_ESSENTIAL(TAG, "📊 Statistiques transfert:");
+        LOG_ESSENTIAL(TAG, "   • Octets envoyés: %lu", stats.bytes_sent);
+        LOG_ESSENTIAL(TAG, "   • Mesures transférées: %lu", stats.records_sent);
+        LOG_ESSENTIAL(TAG, "   • Durée de connexion: %lu sec", stats.connection_time);
+        LOG_ESSENTIAL(TAG, "   • Transfert terminé: %s", stats.transfer_completed ? "Oui" : "Non");
+    }
+    
+    // Arrêter le BLE
+    ble_manager_stop();
+    LOG_ESSENTIAL(TAG, "✅ Mode transfert terminé - Retour au mode normal");
+    
+    // Signal LED de fin : 10 clignotements rapides
+    blink_led(10, 30);
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "🦇 Chiro Logger - Datalogger pour chiroptères");
@@ -547,6 +660,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Plateforme: LOLIN D32 PRO (ESP32)");
     
     // Diagnostic du réveil et gestion du compteur persistant
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
     print_wakeup_info();
     
     // Configuration initiale
@@ -556,13 +670,25 @@ void app_main(void)
     esp_err_t ret = init_led();
     if (ret != ESP_OK) {
         LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED");
-    } 
-    // else {
-        // Test LED au démarrage : 3 clignotements pour confirmer que ça fonctionne
-        // ESP_LOGI(TAG, "🔍 Test LED au démarrage...");
-        // blink_led(3, 200);
-        // vTaskDelay(pdMS_TO_TICKS(500)); // Pause avant de continuer
-    // }
+    }
+    
+    // Initialiser le bouton de réveil pour le mode transfert
+    ret = init_wakeup_button();
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser le bouton de réveil");
+    }
+    
+    // Vérifier si on a été réveillé par le bouton (mode transfert BLE)
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+        handle_transfer_mode();
+        
+        // Après le mode transfert, retourner en deep sleep immédiatement
+        LOG_ESSENTIAL(TAG, "� Retour en deep sleep après mode transfert...");
+        esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL);
+        esp_deep_sleep_start();
+    }
+    
+    // Mode normal : effectuer une mesure
     
     // Initialiser le tampon flash énergétique
     ret = init_flash_buffer();
@@ -630,14 +756,14 @@ void app_main(void)
         }
     }
     
-    // Configurer le deep sleep timer
+    // Configurer le deep sleep timer ET le réveil par bouton
     LOG_DEBUG(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
-    
-    // Note: Pas besoin de démonter la SD avant deep sleep car le redémarrage 
-    // nettoie automatiquement toutes les structures internes d'ESP-IDF
+    LOG_DEBUG(TAG, "🔘 Réveil possible par bouton GPIO %d pour mode transfert", WAKEUP_BUTTON_PIN);
     
     // Configurer le réveil par timer
     esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
+    
+    // Le réveil par bouton est déjà configuré par init_wakeup_button()
     
     // Entrer en deep sleep
     esp_deep_sleep_start();
