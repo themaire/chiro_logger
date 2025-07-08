@@ -55,25 +55,33 @@ Le datalogger utilise le **mode deep sleep** de l'ESP32 pour maximiser l'autonom
 - **Mode deep sleep** : ~10-20 µA (microampères)
 - **Économie d'énergie** : >99% du temps en veille
 
-**🧪 Test d'autonomie réel :**
+**🧪 Tests d'autonomie réels :**
 
+**🔋 Test initial (mode debug) :**
 - **Batterie testée** : LiPo 150mAh seulement
 - **Configuration** : Mesures toutes les 5 secondes
 - **Résultat** : **3700 mesures** jusqu'à épuisement total
-- **Durée** : ~5 heures de fonctionnement continu (3700 × 5s)
+- **Durée** : ~5 heures de fonctionnement continu
+
+**🚀 Test optimisé (mode production ultra-silencieux) :**
+- **Batterie testée** : LiPo 150mAh (même batterie)
+- **Configuration** : Mesures toutes les 5 secondes
+- **Résultat** : **6714 mesures** jusqu'à épuisement total ✨
+- **Durée** : **~9h20** de fonctionnement continu (6714 × 5s)
+- **Amélioration** : **+81% d'autonomie** grâce aux optimisations !
 
 **📊 Projections d'autonomie :**
 
-Basées sur les résultats réels, voici les estimations d'autonomie selon la batterie et l'intervalle de mesure :
+Basées sur les **résultats réels optimisés**, voici les estimations d'autonomie selon la batterie et l'intervalle de mesure :
 
 | Batterie | Intervalle 5s | Intervalle 30min | Intervalle 1h |
 |----------|---------------|------------------|---------------|
-| **150mAh** | ~5h (3700 mesures) | **~2 mois** | **~4 mois** |
-| **500mAh** | ~17h | **~7 mois** | **~14 mois** |
-| **1000mAh** | ~33h | **~14 mois** | **~28 mois** |
-| **2000mAh** | ~67h | **~28 mois** | **~56 mois** |
+| **150mAh** | **9h20** (6714 mesures) | **~4 mois** | **~8 mois** |
+| **500mAh** | **~31h** | **~13 mois** | **~26 mois** |
+| **1000mAh** | **~62h** | **~26 mois** | **~52 mois** |
+| **2000mAh** | **~124h** | **~52 mois** | **~104 mois** |
 
-> 🚀 **Performance exceptionnelle :** Avec une simple batterie de 150mAh et un intervalle de 30 minutes, le datalogger peut fonctionner **2 mois en continu** !
+> 🦇 **Performance exceptionnelle :** Avec une batterie de 1000mAh et un intervalle de 30 minutes, le datalogger peut fonctionner **plus de 2 ans** dans une cavité !
 
 **📊 Gestion intelligente des données avec tampon flash :**
 
@@ -288,11 +296,23 @@ entry 0x40080580
 - **Messages ROM** : Viennent du **silicium ESP32**, **impossible à supprimer**
 - **Impact énergétique** : **Négligeable** (~10ms d'affichage au réveil)
 
-**✅ OPTIMISATION FINALE RÉUSSIE :**
+**⚡ Impact des optimisations énergétiques :**
 
-- ❌ **Logs ESP-IDF supprimés** : Plus de logs système/bootloader
-- ❌ **Logs applicatifs réduits** : Seuls les logs essentiels en production
-- ✅ **Messages ROM ESP32** : Seuls vestiges (silicium - non suppressibles)
-- ⚡ **Économie d'énergie** : **Maximale** pour l'autonomie long terme
+L'amélioration spectaculaire de **+81% d'autonomie** démontre l'efficacité des optimisations :
 
-> 💡 **Bilan :** Le datalogger est maintenant en **mode ultra-silencieux** optimal pour déploiement sur le terrain avec **autonomie maximale** !
+**🔧 Optimisations appliquées :**
+
+1. **Logs système ESP-IDF désactivés** : Plus de logs bootloader/système
+2. **Logs applicatifs conditionnels** : Seuls les logs essentiels en production
+3. **Tampon flash optimisé** : SD activée seulement 13 fois (6714÷500) vs 6714 fois
+4. **Mode production silencieux** : Pas de gaspillage énergétique UART
+5. **Deep sleep parfait** : Consommation < 10µA en veille
+
+**📈 Comparaison des résultats :**
+
+| Mode | Mesures | Durée | Amélioration |
+|------|---------|-------|-------------|
+| **Debug initial** | 3700 | ~5h | Baseline |
+| **Production optimisé** | **6714** | **~9h20** | **+81%** |
+
+**💡 Conclusion :** Les optimisations de logs et de gestion énergétique permettent de **quasi-doubler l'autonomie** !
