@@ -25,16 +25,16 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 
 ### Matériel principal
 
+### Matériel principal
+
 | Composant | Rôle | Remarques |
 |----------|------|-----------|
-| **LOLIN/Wemos D32 Pro (ESP32)** | Microcontrôleur principal | Faible consommation, BLE intégré, slot microSD |
-| **BME280** | Capteur de température, humidité, pression | Haute précision, I2C |
-| **DS3231 RTC** | Horloge temps réel | Pour horodatage même en deep sleep |
-| **Carte microSD** | Stockage local des mesures | Format `.csv` lisible par tableur |
-| **Capteur capacitif (ex. TTP223)** | Déclencheur sans contact | Permet d’activer le mode "transfert de données" |
-| **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Autonomie estimée à plusieurs semaines/mois |
-| **Diviseur de tension ou MAX17048** | Suivi du niveau de batterie | Pour surveiller l'autonomie via le programme |
-
+| **LOLIN C3 Mini (ESP32-C3)** | Microcontrôleur principal | Ultra faible consommation (~5µA en deep sleep), BLE 5.0, architecture RISC-V, chargeur batterie intégré |
+| **Shield RTC + microSD (DS1307)** | Horloge + stockage combinés | Module tout-en-un : DS1307 RTC pour horodatage + lecteur microSD pour stockage CSV - montage compact sur une seule plaquette |
+| **SHT45** | Capteur de température et humidité | Haute précision industrielle, I2C, très faible consommation (<0.1µA en veille) |
+| **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Chargeur intégré dans le LOLIN C3 Mini, autonomie estimée à plusieurs mois/années |
+| **Boutons tactiles étanches** | Déclencheurs sans ouverture | Activation mode transfert BLE + vérification charge batterie |
+| **Connecteur USB-C étanche** | Recharge sans ouverture | Intégré au LOLIN C3 Mini pour recharge facile |
 
 ### Fonctionnement logiciel
 
