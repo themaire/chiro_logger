@@ -35,6 +35,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 | **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Autonomie estimée à plusieurs semaines/mois |
 | **Diviseur de tension ou MAX17048** | Suivi du niveau de batterie | Pour surveiller l'autonomie via le programme |
 
+
 ### Fonctionnement logiciel
 
 #### 🔁 Mode normal (acquisition)
