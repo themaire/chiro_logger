@@ -8,12 +8,9 @@
 #include <freertos/timers.h>
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <esp_bt.h>
-#include <esp_bt_main.h>
-#include <esp_gap_ble_api.h>
-#include <esp_gatts_api.h>
-#include <esp_gatt_common_api.h>
-#include <esp_bt_defs.h>
+
+// APIs Bluetooth BLE (compatible ESP32 et ESP32-C3)
+// L'ESP32-C3 supporte Bluetooth 5.0 LE via Bluedroid
 
 static const char *TAG = "BLE_MANAGER";
 

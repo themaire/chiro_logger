@@ -320,7 +320,136 @@ L'amélioration spectaculaire de **+81% d'autonomie** démontre l'efficacité de
 
 **💡 Conclusion :** Les optimisations de logs et de gestion énergétique permettent de **quasi-doubler l'autonomie** !
 
-## 📡 Mode transfert Bluetooth BLE
+## �️ Configuration de l'environnement de développement
+
+### 📋 Prérequis
+
+-- J'ai constitué ce projet sur MacOS 15.1.1. Je ne saurais vous aider si vous etes sur un systeme d'exploitation different.
+
+- **VS Code** avec l'extension **PlatformIO IDE**
+- **Python 3.x** installé
+- **Git** pour cloner le projet
+
+### 🚀 Étapes d'installation
+
+#### 1. Cloner le projet
+
+```bash
+git clone https://github.com/themaire/chiro_logger.git
+cd chiro_logger
+```
+
+#### 2. Vérifier le fichier `platformio.ini`
+
+Assurez-vous que la configuration correspond à votre carte :
+
+```ini
+[env:lolin_c3_mini]
+platform = espressif32@6.9.0
+board = lolin_c3_mini
+framework = espidf
+lib_deps = 
+    esp-nimble-cpp
+```
+
+**Pour LOLIN D32 PRO (ESP32 classique) :**
+```ini
+[env:lolin_d32_pro_16mb]
+platform = espressif32
+board = lolin_d32_pro
+framework = espidf
+```
+
+#### 3. Nettoyer les configurations précédentes
+
+Si vous changez de carte ou rencontrez des erreurs :
+
+```bash
+# Supprimer les anciennes configurations
+rm -f sdkconfig sdkconfig.lolin_c3_mini sdkconfig.lolin_d32_pro_16mb
+
+# Nettoyer le build
+pio run -t clean
+```
+
+#### 4. Installer les dépendances et compiler
+
+```bash
+# Mettre à jour les packages PlatformIO
+pio pkg update
+
+# Compiler le projet (installe automatiquement les dépendances)
+pio run -t build
+```
+
+#### 5. Configurer l'IDE VS Code
+
+```bash
+# Générer la configuration pour IntelliSense
+pio run -t compiledb
+```
+
+Puis recharger VS Code : `Cmd+Shift+P` → **"Developer: Reload Window"**
+
+#### 6. Flasher sur la carte
+
+```bash
+# Upload du firmware
+pio run -t upload
+
+# Monitorer les logs série
+pio device monitor
+```
+
+### 🔧 Commandes utiles
+
+| Commande | Description |
+|----------|-------------|
+| `pio run -t clean` | Nettoyer le projet |
+| `pio run -t build` | Compiler le firmware |
+| `pio run -t upload` | Flasher sur l'ESP32 |
+| `pio device monitor` | Monitorer les logs série |
+| `pio run -t compiledb` | Régénérer la config IntelliSense |
+| `pio pkg update` | Mettre à jour les dépendances |
+| `pio device list` | Lister les ports série disponibles |
+
+### 🐛 Dépannage
+
+**Problème : Headers BLE non trouvés (`esp_bt_main.h` manquant)**
+
+→ L'ESP32-C3 utilise NimBLE, pas le stack Bluedroid classique. Vérifiez que `lib_deps = esp-nimble-cpp` est dans `platformio.ini`.
+
+**Problème : Erreur de compilation avec Xtensa sur ESP32-C3**
+
+→ L'ESP32-C3 utilise RISC-V, pas Xtensa. Vérifiez que `board = lolin_c3_mini` est configuré.
+
+**Problème : IntelliSense ne trouve pas les includes**
+
+→ Lancez `pio run -t compiledb` puis rechargez VS Code.
+
+**Problème : Port série non détecté**
+
+→ Vérifiez les drivers USB-Serial (CH340, CP210x selon la carte).
+
+### 📦 Structure du projet
+
+```
+chiro_logger/
+├── src/
+│   └── main.c                    # Programme principal
+├── components/
+│   └── ble_transfer/             # Module BLE
+│       ├── ble_manager.h
+│       ├── ble_manager.c
+│       └── CMakeLists.txt
+├── platformio.ini                # Configuration PlatformIO
+├── sdkconfig.defaults            # Configuration ESP-IDF
+└── README.md
+```
+
+---
+
+## �📡 Mode transfert Bluetooth BLE
 
 ### 🔄 Récupération des données sans contact
 

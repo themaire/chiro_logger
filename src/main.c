@@ -17,7 +17,7 @@
 #include <esp_vfs_semihost.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
-#include "ble_manager.h"
+// #include "ble_manager.h"
 
 static const char *TAG = "CHIRO_LOGGER";
 
@@ -535,7 +535,7 @@ void print_wakeup_info(void)
         case ESP_SLEEP_WAKEUP_TIMER:
             LOG_ESSENTIAL(TAG, "⏰ Réveil du deep sleep (timer) - Cycle #%d", cycle_counter + 1);
             break;
-        case ESP_SLEEP_WAKEUP_EXT0:
+        case ESP_SLEEP_WAKEUP_GPIO:
             LOG_ESSENTIAL(TAG, "🔘 Réveil du deep sleep (bouton) - Mode transfert BLE activé!");
             break;
         case ESP_SLEEP_WAKEUP_UNDEFINED:
@@ -569,10 +569,11 @@ esp_err_t init_wakeup_button(void)
         return ret;
     }
     
-    // Configurer le réveil par EXT0 (niveau bas = bouton appuyé)
-    ret = esp_sleep_enable_ext0_wakeup(WAKEUP_BUTTON_PIN, WAKEUP_BUTTON_LEVEL);
+    // ESP32-C3 ne supporte pas EXT0 wakeup, utiliser GPIO wakeup à la place
+    // Le bouton est sur GPIO9, réveil sur niveau bas (bouton appuyé)
+    ret = esp_deep_sleep_enable_gpio_wakeup(1ULL << WAKEUP_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
     if (ret != ESP_OK) {
-        LOG_ESSENTIAL(TAG, "❌ Erreur configuration réveil EXT0: %s", esp_err_to_name(ret));
+        LOG_ESSENTIAL(TAG, "❌ Erreur configuration réveil GPIO: %s", esp_err_to_name(ret));
         return ret;
     }
     
@@ -580,77 +581,14 @@ esp_err_t init_wakeup_button(void)
     return ESP_OK;
 }
 
-// Fonction pour gérer le mode transfert BLE
+// Fonction pour gérer le mode transfert BLE (désactivée temporairement)
 void handle_transfer_mode(void)
 {
-    LOG_ESSENTIAL(TAG, "🔘 Activation du mode transfert BLE...");
+    LOG_ESSENTIAL(TAG, "🔘 Mode transfert BLE désactivé temporairement");
+    LOG_ESSENTIAL(TAG, "💤 Retour au mode normal...");
     
-    // Signal LED spécial pour mode transfert : 5 clignotements rapides
-    blink_led(5, 100);
-    
-    // Initialiser le module BLE
-    esp_err_t ret = ble_manager_init();
-    if (ret != ESP_OK) {
-        LOG_ESSENTIAL(TAG, "❌ Erreur initialisation BLE: %s", esp_err_to_name(ret));
-        LOG_ESSENTIAL(TAG, "💤 Retour au mode normal...");
-        return;
-    }
-    
-    // Démarrer le mode transfert
-    ret = ble_manager_start_transfer_mode();
-    if (ret != ESP_OK) {
-        LOG_ESSENTIAL(TAG, "❌ Erreur démarrage mode transfert: %s", esp_err_to_name(ret));
-        ble_manager_stop();
-        return;
-    }
-    
-    LOG_ESSENTIAL(TAG, "📡 Mode transfert BLE actif - En attente de connexion PWA...");
-    LOG_ESSENTIAL(TAG, "💡 Ouvrez l'application PWA ChiroLogger pour récupérer les données");
-    
-    // Boucle d'attente avec timeout
-    int timeout_counter = 0;
-    const int max_timeout = BLE_TRANSFER_TIMEOUT_SEC;
-    
-    while (timeout_counter < max_timeout) {
-        ble_state_t state = ble_manager_get_state();
-        
-        if (state == BLE_STATE_STOPPED) {
-            // Transfert terminé ou arrêté
-            break;
-        }
-        
-        // Vérifier le timeout du module BLE
-        if (ble_manager_check_timeout()) {
-            break;
-        }
-        
-        // Signal LED périodique en mode transfert
-        if (state == BLE_STATE_ADVERTISING) {
-            blink_led(2, 50);  // 2 clignotements : en attente de connexion
-        } else if (state == BLE_STATE_CONNECTED) {
-            blink_led(3, 50);  // 3 clignotements : client connecté
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Attendre 1 seconde
-        timeout_counter++;
-    }
-    
-    // Afficher les statistiques du transfert
-    ble_transfer_stats_t stats;
-    if (ble_manager_get_transfer_stats(&stats) == ESP_OK) {
-        LOG_ESSENTIAL(TAG, "📊 Statistiques transfert:");
-        LOG_ESSENTIAL(TAG, "   • Octets envoyés: %lu", stats.bytes_sent);
-        LOG_ESSENTIAL(TAG, "   • Mesures transférées: %lu", stats.records_sent);
-        LOG_ESSENTIAL(TAG, "   • Durée de connexion: %lu sec", stats.connection_time);
-        LOG_ESSENTIAL(TAG, "   • Transfert terminé: %s", stats.transfer_completed ? "Oui" : "Non");
-    }
-    
-    // Arrêter le BLE
-    ble_manager_stop();
-    LOG_ESSENTIAL(TAG, "✅ Mode transfert terminé - Retour au mode normal");
-    
-    // Signal LED de fin : 10 clignotements rapides
-    blink_led(10, 30);
+    // Signal LED : BLE désactivé
+    blink_led(3, 100);
 }
 
 void app_main(void)
@@ -679,7 +617,7 @@ void app_main(void)
     }
     
     // Vérifier si on a été réveillé par le bouton (mode transfert BLE)
-    if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         handle_transfer_mode();
         
         // Après le mode transfert, retourner en deep sleep immédiatement
