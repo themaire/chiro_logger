@@ -13,10 +13,12 @@
 static const char *TAG = "SD_CARD";
 
 // Configuration des pins pour le slot SD sur LOLIN C3 Mini
-#define PIN_NUM_MISO 19
-#define PIN_NUM_MOSI 23
-#define PIN_NUM_CLK  18
-#define PIN_NUM_CS   4
+// Note: ESP32-C3 a moins de pins que l'ESP32 classique
+// Ces pins sont disponibles sur le C3 Mini et compatibles SPI
+#define PIN_NUM_MISO 4   // GPIO4 - MISO
+#define PIN_NUM_MOSI 6   // GPIO6 - MOSI
+#define PIN_NUM_CLK  5   // GPIO5 - CLK
+#define PIN_NUM_CS   10  // GPIO10 - CS
 
 // Point de montage de la carte SD
 #define MOUNT_POINT "/sdcard"

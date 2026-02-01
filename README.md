@@ -35,7 +35,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 | **LED RGB WS2812** | Feedback visuel optionnel | LED RGB addressable sur GPIO7, pilotée via RMT, désactivable pour économie batterie (mode VISUAL_MODE) |
 | **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Chargeur intégré dans le LOLIN C3 Mini, autonomie estimée à plusieurs mois/années |
 | **Boutons tactiles étanches** | Déclencheurs sans ouverture | Activation mode transfert BLE + vérification charge batterie |
-| **Connecteur USB-C étanche** | Recharge sans ouverture | Intégré au LOLIN C3 Mini pour recharge facile |
+| **Connecteur USB-C étanche** | Recharge sans ouverture | Le chargeur de batterie est intégré au LOLIN C3 Mini. Le connecteur est soudé aux à l'entrée 5V de la carte. |
 
 ### Fonctionnement logiciel
 
