@@ -1,3 +1,22 @@
 chiro_logger.code-workspace
 .pio/
 venv/
+
+# CMake
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+CMakeConfigureLog.yaml
+
+# Build directories
+build/
+build_*/
+out/

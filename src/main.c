@@ -17,6 +17,14 @@
 #include <esp_vfs_semihost.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
+#include "led_rgb.h"
+#include "sd_card.h"
+
+// !! Très important !! Contien les définitions de configuration
+// C'est a dire les variables et constantes globales utilisées dans tout le projet
+// comme : les pins, les durées de deep sleep, les chemins de fichiers, etc.
+#include "config.h"
+
 // #include "ble_manager.h"
 
 static const char *TAG = "CHIRO_LOGGER";
@@ -24,53 +32,29 @@ static const char *TAG = "CHIRO_LOGGER";
 // Variable stockée en RTC memory pour persister entre les deep sleeps
 RTC_DATA_ATTR int cycle_counter = 0;
 
-// Configuration des pins pour le slot SD sur LOLIN D32 PRO
-#define PIN_NUM_MISO 19
-#define PIN_NUM_MOSI 23
-#define PIN_NUM_CLK  18
-#define PIN_NUM_CS   4
-
-// Configuration LED pour feedback visuel
-#define LED_PIN 5  // LED intégrée sur LOLIN D32 PRO (alternative si GPIO 2 ne fonctionne pas)
-
-// Configuration du bouton de réveil pour mode transfert BLE
-#define WAKEUP_BUTTON_PIN GPIO_NUM_0  // Bouton BOOT sur LOLIN D32 PRO
-#define WAKEUP_BUTTON_LEVEL 0         // Niveau bas quand appuyé (pull-up interne)
-
-// Point de montage de la carte SD
-#define MOUNT_POINT "/sdcard"
-
-// Point de montage du tampon flash (partition SPIFFS)
-#define BUFFER_MOUNT_POINT "/buffer"
-
-// Configuration du deep sleep (en secondes)
-#define DEEP_SLEEP_DURATION_SEC 5
-
-// Configuration des logs pour économie d'énergie (décommenter pour production)
-#define PRODUCTION_MODE  // Désactive la plupart des logs pour économiser l'énergie
-
 /*
- * 💡 OPTIMISATION ÉNERGÉTIQUE - LOGS :
+ * 💡 OPTIMISATION ÉNERGÉTIQUE - LOGS & LED :
  * 
- * Les ESP_LOGI/ESP_LOGE consomment de l'énergie car ils :
+ * Les fonction pour afficher les logs ESP_LOGI/ESP_LOGE consomment de l'énergie car ils :
  * - Maintiennent l'UART actif (~10-20 mA)
  * - Prolongent le temps d'activité avant deep sleep
  * - Formatent et transmettent les chaînes
  * 
- * EN PRODUCTION : Décommenter #define PRODUCTION_MODE
+ * EN PRODUCTION / sur le terrain : Décommenter #define PRODUCTION_MODE
  * - Garde uniquement les logs essentiels (erreurs, flush, compteur)
  * - Supprime les logs de debug/verbose
  * - Économie estimée : 5-10% d'autonomie supplémentaire
+ * 
+ * La LED RGB WS2812 consomme :
+ * - ~1 mA par LED en veille
+ * - ~20 mA par couleur à pleine intensité (60 mA max pour blanc)
+ * - Impact modéré mais mesurable sur batterie long terme
+ * 
+ * MODE TERRAIN (autonomie max) : Commenter #define VISUAL_MODE
+ * MODE DEBUG/TEST : Décommenter #define VISUAL_MODE
  */
 
-// Configuration du tampon flash pour économie d'énergie
-#define BUFFER_FLUSH_THRESHOLD 500  // Nombre de mesures avant flush vers SD (optimisé pour autonomie)
-
-#define BUFFER_CSV_FILE "/buffer/data_buffer.csv"
-
 // Déclarations de fonctions
-esp_err_t init_led(void);
-void blink_led(int count, int delay_ms);
 void print_wakeup_info(void);
 esp_err_t init_wakeup_button(void);
 void handle_transfer_mode(void);
@@ -85,233 +69,6 @@ void handle_transfer_mode(void);
     #define LOG_DEBUG(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
     #define LOG_VERBOSE(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
 #endif
-
-// Fonction utilitaire pour enregistrer des données au format CSV avec ID unique
-esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, float temperature, float humidity)
-{
-    // Valeurs par défaut si les paramètres sont NULL ou invalides
-    if (filepath == NULL) {
-        filepath = "/sdcard/CHIRO/data.csv";
-    }
-    
-    // Vérifier si le fichier existe déjà
-    FILE *file = fopen(filepath, "r");
-    bool file_exists = (file != NULL);
-    if (file != NULL) {
-        fclose(file);
-    }
-    
-    // Ouvrir le fichier en mode append
-    file = fopen(filepath, "a");
-    if (file == NULL) {
-        ESP_LOGE(TAG, "❌ Impossible d'ouvrir le fichier CSV: %s", filepath);
-        return ESP_FAIL;
-    }
-    
-    // Si le fichier n'existait pas, écrire l'en-tête
-    if (!file_exists) {
-        ESP_LOGI(TAG, "📄 Création du fichier CSV avec en-tête: %s", filepath);
-        fprintf(file, "ID,DateTime,Temperature_C,Humidity_%%\n");
-    }
-    
-    // Écrire les données avec ID unique en première colonne
-    fprintf(file, "%d,", id);
-    
-    if (datetime == NULL) {
-        // Générer un timestamp par défaut basé sur esp_timer
-        int64_t timestamp = esp_timer_get_time() / 1000000; // Convertir en secondes
-        fprintf(file, "%lld,", (long long)timestamp);
-    } else {
-        fprintf(file, "%s,", datetime);
-    }
-    
-    // Gérer les valeurs par défaut pour température et humidité
-    if (temperature == -999.0f) {
-        fprintf(file, "N/A,");
-    } else {
-        fprintf(file, "%.2f,", temperature);
-    }
-    
-    if (humidity == -999.0f) {
-        fprintf(file, "N/A\n");
-    } else {
-        fprintf(file, "%.2f\n", humidity);
-    }
-    
-    fclose(file);
-    ESP_LOGI(TAG, "✅ Données enregistrées dans: %s", filepath);
-    return ESP_OK;
-}
-
-// Fonction d'initialisation de la carte SD
-esp_err_t init_sd_card(void)
-{
-    ESP_LOGI(TAG, "Initialisation de la carte microSD...");
-    
-    esp_err_t ret;
-    
-    // Configuration du host SPI pour la carte SD
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,  // ⚠️ SÉCURITÉ: Pas de formatage automatique pour préserver les données
-        .max_files = 5,
-        .allocation_unit_size = 16 * 1024,
-        .disk_status_check_enable = false  // Désactiver la vérification de statut
-    };
-    
-    sdmmc_card_t *card;
-    const char mount_point[] = MOUNT_POINT;
-    
-    ESP_LOGI(TAG, "Initialisation du bus SPI...");
-    
-    // Configuration du bus SPI
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    spi_bus_config_t bus_cfg = {
-        .mosi_io_num = PIN_NUM_MOSI,
-        .miso_io_num = PIN_NUM_MISO,
-        .sclk_io_num = PIN_NUM_CLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4000,
-    };
-    
-    ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
-    if (ret != ESP_OK) {
-        if (ret == ESP_ERR_INVALID_STATE) {
-            // Le bus SPI est déjà initialisé, c'est normal lors d'une récupération
-            ESP_LOGI(TAG, "Bus SPI déjà initialisé (récupération)");
-        } else {
-            ESP_LOGE(TAG, "Erreur initialisation bus SPI: %s", esp_err_to_name(ret));
-            return ret;
-        }
-    }
-    
-    // Configuration du slot SPI pour la carte SD
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = PIN_NUM_CS;
-    slot_config.host_id = host.slot;
-    
-    ESP_LOGI(TAG, "Montage du système de fichiers FAT...");
-    ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
-    
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "❌ Impossible de monter le système de fichiers FAT.");
-            ESP_LOGW(TAG, "💡 Solutions possibles:");
-            ESP_LOGW(TAG, "   1. Vérifiez que la carte SD est bien insérée");
-            ESP_LOGW(TAG, "   2. Formatez la carte SD en FAT32 sur votre ordinateur");
-            ESP_LOGW(TAG, "   3. Utilisez une carte SD différente");
-            ESP_LOGW(TAG, "   4. Vérifiez que la carte SD n'est pas corrompue");
-            ESP_LOGW(TAG, "ℹ️  Le formatage automatique est désactivé pour préserver vos données");
-        } else {
-            ESP_LOGE(TAG, "❌ Erreur initialisation carte (%s).", esp_err_to_name(ret));
-            ESP_LOGW(TAG, "💡 Vérifiez que la carte SD est insérée et correctement connectée.");
-        }
-        return ret;
-    }
-    ESP_LOGI(TAG, "Système de fichiers monté");
-    
-    // Affichage des informations de la carte
-    sdmmc_card_print_info(stdout, card);
-    
-    // Vérifier les permissions du répertoire racine
-    ESP_LOGI(TAG, "Vérification des permissions du répertoire %s", mount_point);
-    
-    // Créer le répertoire de travail pour le projet
-    const char* work_dir = "/sdcard/CHIRO";
-    struct stat st;
-    if (stat(work_dir, &st) != 0) {
-        ESP_LOGI(TAG, "Création du répertoire de travail: %s", work_dir);
-        if (mkdir(work_dir, 0755) != 0) {
-            ESP_LOGW(TAG, "Impossible de créer le répertoire %s", work_dir);
-        } else {
-            ESP_LOGI(TAG, "✅ Répertoire de travail créé: %s", work_dir);
-        }
-    } else {
-        ESP_LOGI(TAG, "✅ Répertoire de travail existe déjà: %s", work_dir);
-    }
-    
-    return ESP_OK;
-}
-
-// Fonction de test d'écriture sur la carte SD
-esp_err_t test_sd_card(void)
-{
-    ESP_LOGI(TAG, "Test d'écriture sur la carte SD...");
-    
-    // Vérifier que le point de montage existe
-    struct stat st;
-    if (stat(MOUNT_POINT, &st) != 0) {
-        ESP_LOGE(TAG, "Point de montage %s n'existe pas", MOUNT_POINT);
-        return ESP_FAIL;
-    }
-    
-    ESP_LOGI(TAG, "Point de montage %s existe", MOUNT_POINT);
-    
-    // Essayer d'abord avec un chemin dans le répertoire du projet
-    const char* test_file = "/sdcard/CHIRO/test.txt";
-    ESP_LOGI(TAG, "Tentative d'écriture dans: %s", test_file);
-    
-    FILE *f = fopen(test_file, "w");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Erreur: impossible d'ouvrir %s pour écriture", test_file);
-        
-        // Essayer avec un nom de fichier différent dans le répertoire racine
-        test_file = "/sdcard/CHIRO.txt";
-        ESP_LOGI(TAG, "Tentative avec un autre nom: %s", test_file);
-        f = fopen(test_file, "w");
-        
-        if (f == NULL) {
-            ESP_LOGE(TAG, "Erreur: impossible d'ouvrir %s pour écriture", test_file);
-            ESP_LOGE(TAG, "💡 Vérifiez les permissions de la carte SD");
-            return ESP_FAIL;
-        }
-    }
-    
-    // Écrire des données simples
-    fprintf(f, "Chiro Logger Test\n");
-    fprintf(f, "Timestamp: %lld\n", (long long)esp_timer_get_time());
-    fprintf(f, "Status: OK\n");
-    fclose(f);
-    
-    ESP_LOGI(TAG, "Fichier %s écrit avec succès", test_file);
-    
-    // Lire le fichier pour vérifier
-    f = fopen(test_file, "r");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Erreur: impossible d'ouvrir le fichier pour lecture");
-        return ESP_FAIL;
-    }
-    
-    char line[64];
-    ESP_LOGI(TAG, "Contenu du fichier de test:");
-    while (fgets(line, sizeof(line), f)) {
-        // Retirer le \n pour l'affichage
-        char* pos = strchr(line, '\n');
-        if (pos) *pos = '\0';
-        ESP_LOGI(TAG, "  %s", line);
-    }
-    fclose(f);
-    
-    return ESP_OK;
-}
-
-// Fonction pour démonter proprement la carte SD
-esp_err_t unmount_sd_card(void)
-{
-    ESP_LOGI(TAG, "Démontage de la carte SD...");
-    
-    // Démonter le système de fichiers
-    esp_err_t ret = esp_vfs_fat_sdcard_unmount(MOUNT_POINT, NULL);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Erreur lors du démontage: %s", esp_err_to_name(ret));
-        // Continuer même en cas d'erreur
-    }
-    
-    // NE PAS libérer le bus SPI automatiquement - cela cause des crashes
-    // Le bus sera automatiquement réinitialisé lors de la prochaine tentative de montage
-    ESP_LOGI(TAG, "Démontage terminé (bus SPI conservé)");
-    return ESP_OK;
-}
 
 // Fonction d'initialisation du tampon flash (partition SPIFFS)
 esp_err_t init_flash_buffer(void)
@@ -400,8 +157,8 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
     fclose(file);
     LOG_DEBUG(TAG, "✅ Mesure ajoutée au tampon flash");
     
-    // Clignotement LED : 1 fois pour ajout au tampon
-    blink_led(1, 100);
+    // Signal LED rapide pour sauvegarde
+    set_led_rgb(0, 255, 0, 50, 1, 0);  // Vert flash ultra rapide
     
     return ESP_OK;
 }
@@ -477,8 +234,8 @@ esp_err_t flush_buffer_to_sd(void)
     
     ESP_LOGI(TAG, "✅ %d lignes copiées vers la SD", lines_copied);
     
-    // Clignotement LED : 20 fois pour flush vers SD
-    blink_led(10, 30);
+    // Signal LED de flush réussi
+    set_led_rgb(0, 255, 0, 500, 10, 50);  // Vert 10 flashs rapides
     
     // Vider le tampon après transfert réussi
     if (remove(BUFFER_CSV_FILE) == 0) {
@@ -491,39 +248,6 @@ esp_err_t flush_buffer_to_sd(void)
     unmount_sd_card();
     
     return ESP_OK;
-}
-
-// Fonction d'initialisation de la LED
-esp_err_t init_led(void)
-{
-    gpio_config_t io_conf = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << LED_PIN),
-        .pull_down_en = 0,
-        .pull_up_en = 0,
-    };
-    
-    esp_err_t ret = gpio_config(&io_conf);
-    if (ret == ESP_OK) {
-        gpio_set_level(LED_PIN, 0); // LED éteinte au démarrage
-        // ESP_LOGI(TAG, "✅ LED initialisée sur pin %d", LED_PIN);
-    }
-    return ret;
-}
-
-// Fonction pour faire clignoter la LED
-void blink_led(int count, int delay_ms)
-{
-    // ESP_LOGI(TAG, "💡 LED: %d clignotement(s)", count);
-    for (int i = 0; i < count; i++) {
-        gpio_set_level(LED_PIN, 1); // Allumer
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        gpio_set_level(LED_PIN, 0); // Éteindre
-        if (i < count - 1) { // Pas de délai après le dernier clignotement
-            vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        }
-    }
 }
 
 // Fonction de diagnostic du réveil
@@ -587,15 +311,19 @@ void handle_transfer_mode(void)
     LOG_ESSENTIAL(TAG, "🔘 Mode transfert BLE désactivé temporairement");
     LOG_ESSENTIAL(TAG, "💤 Retour au mode normal...");
     
-    // Signal LED : BLE désactivé
-    blink_led(3, 100);
+    // Signal LED : BLE désactivé - Orange clignotant
+    set_led_rgb(255, 165, 0, 2000, 5, 300);  // Orange 5 clignotements
 }
 
 void app_main(void)
 {
+    // 🔌 DÉLAI USB SÉRIE - ESP32-C3 a besoin de temps pour établir la connexion USB
+    // Commentez cette ligne en production pour économiser l'énergie
+    vTaskDelay(pdMS_TO_TICKS(2000));  // 2 secondes pour connexion série
+    
     ESP_LOGI(TAG, "🦇 Chiro Logger - Datalogger pour chiroptères");
     ESP_LOGI(TAG, "Version: 1.0.0");
-    ESP_LOGI(TAG, "Plateforme: LOLIN D32 PRO (ESP32)");
+    ESP_LOGI(TAG, "Plateforme: LOLIN C3 Mini (ESP32-C3)");
     
     // Diagnostic du réveil et gestion du compteur persistant
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
@@ -604,11 +332,19 @@ void app_main(void)
     // Configuration initiale
     LOG_DEBUG(TAG, "Initialisation du système...");
     
-    // Initialiser la LED pour feedback visuel
-    esp_err_t ret = init_led();
+#ifdef VISUAL_MODE
+    // Initialiser la LED RGB pour feedback visuel (uniquement si VISUAL_MODE activé)
+    esp_err_t ret = init_led_rgb();
     if (ret != ESP_OK) {
-        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED");
+        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED RGB");
+    } else {
+        // Signal de démarrage : bleu pulsé
+        set_led_rgb(0, 0, 255, 1000, 3, 300);  // Bleu 3 clignotements
     }
+#else
+    LOG_DEBUG(TAG, "🔋 LED RGB désactivées (mode économie batterie)");
+    esp_err_t ret;
+#endif
     
     // Initialiser le bouton de réveil pour le mode transfert
     ret = init_wakeup_button();
@@ -621,7 +357,7 @@ void app_main(void)
         handle_transfer_mode();
         
         // Après le mode transfert, retourner en deep sleep immédiatement
-        LOG_ESSENTIAL(TAG, "� Retour en deep sleep après mode transfert...");
+        LOG_ESSENTIAL(TAG, "💤 Retour en deep sleep après mode transfert...");
         esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL);
         esp_deep_sleep_start();
     }
@@ -643,8 +379,7 @@ void app_main(void)
     
     LOG_ESSENTIAL(TAG, "📊 Cycle de mesure #%d", cycle_counter);
     
-    // Signal LED de début de cycle
-    blink_led(1, 30);
+    // Signal LED de début de cycle (déjà fait au démarrage en bleu)
     
     // Effectuer une mesure
     float temp = 18.5 + (cycle_counter * 0.1);
@@ -668,12 +403,22 @@ void app_main(void)
         
         if (buffer_count >= BUFFER_FLUSH_THRESHOLD) {
             LOG_ESSENTIAL(TAG, "🔄 Seuil atteint - flush vers la carte SD...");
+            // Signal LED : flush en cours - Cyan pulsé
+            set_led_rgb(0, 255, 255, 500, 2, 200);  // Cyan 2 clignotements rapides
+            
             esp_err_t flush_result = flush_buffer_to_sd();
             if (flush_result == ESP_OK) {
                 LOG_ESSENTIAL(TAG, "✅ Flush réussi - tampon vidé");
+                // Signal LED : succès - Vert fixe
+                set_led_rgb(0, 255, 0, 500, 0, 0);  // Vert fixe 500ms
             } else {
                 LOG_ESSENTIAL(TAG, "⚠️  Flush échoué - données conservées dans le tampon");
+                // Signal LED : avertissement - Jaune clignotant
+                set_led_rgb(255, 255, 0, 1000, 3, 250);  // Jaune 3 clignotements
             }
+        } else {
+            // Mesure normale stockée - Vert flash rapide
+            set_led_rgb(0, 255, 0, 100, 1, 0);  // Vert 1 flash rapide
         }
     } else {
         LOG_ESSENTIAL(TAG, "⚠️  Échec stockage tampon - tentative écriture directe SD");
@@ -685,18 +430,28 @@ void app_main(void)
                                                    cycle_counter, datetime_str, temp, humidity);
             if (csv_result == ESP_OK) {
                 LOG_ESSENTIAL(TAG, "💾 Données sauvegardées directement sur SD");
+                // Signal LED : mode dégradé OK - Vert lent
+                set_led_rgb(0, 255, 0, 800, 2, 400);  // Vert 2 clignotements lents
             } else {
                 LOG_ESSENTIAL(TAG, "❌ Échec sauvegarde directe sur SD");
+                // Signal LED : erreur - Rouge clignotant rapide
+                set_led_rgb(255, 0, 0, 1000, 5, 150);  // Rouge 5 clignotements rapides
             }
             unmount_sd_card();
         } else {
             LOG_ESSENTIAL(TAG, "❌ Données perdues - tampon et SD indisponibles");
+            // Signal LED : erreur critique - Rouge fixe long
+            set_led_rgb(255, 0, 0, 2000, 0, 0);  // Rouge fixe 2s
         }
     }
     
     // Configurer le deep sleep timer ET le réveil par bouton
     LOG_DEBUG(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
     LOG_DEBUG(TAG, "🔘 Réveil possible par bouton GPIO %d pour mode transfert", WAKEUP_BUTTON_PIN);
+    
+    // Signal LED avant deep sleep - Bleu fade out
+    set_led_rgb(0, 0, 50, 500, 1, 0);  // Bleu dim 1 flash
+    led_off();  // Éteindre explicitement
     
     // Configurer le réveil par timer
     esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes

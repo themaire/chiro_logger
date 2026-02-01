@@ -29,9 +29,10 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 
 | Composant | Rôle | Remarques |
 |----------|------|-----------|
-| **LOLIN C3 Mini (ESP32-C3)** | Microcontrôleur principal | Ultra faible consommation (~5µA en deep sleep), BLE 5.0, architecture RISC-V, chargeur batterie intégré |
+| **[LOLIN C3 Mini (ESP32-C3)](https://fr.aliexpress.com/item/1005004866531117.html)** | Microcontrôleur principal | Ultra faible consommation (~5µA en deep sleep), BLE 5.0, architecture RISC-V, chargeur batterie intégré |
 | **Shield RTC + microSD (DS1307)** | Horloge + stockage combinés | Module tout-en-un : DS1307 RTC pour horodatage + lecteur microSD pour stockage CSV - montage compact sur une seule plaquette |
 | **SHT45** | Capteur de température et humidité | Haute précision industrielle, I2C, très faible consommation (<0.1µA en veille) |
+| **LED RGB WS2812** | Feedback visuel optionnel | LED RGB addressable sur GPIO7, pilotée via RMT, désactivable pour économie batterie (mode VISUAL_MODE) |
 | **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Chargeur intégré dans le LOLIN C3 Mini, autonomie estimée à plusieurs mois/années |
 | **Boutons tactiles étanches** | Déclencheurs sans ouverture | Activation mode transfert BLE + vérification charge batterie |
 | **Connecteur USB-C étanche** | Recharge sans ouverture | Intégré au LOLIN C3 Mini pour recharge facile |
@@ -133,15 +134,46 @@ Le datalogger utilise un système de **tampon flash interne** pour optimiser l'u
 - Mode actif : ~80 mA
 - Deep sleep : ~10 µA (8000x moins !)
 
-**� Feedback visuel LED :**
+**🎨 Feedback visuel LED RGB (VISUAL_MODE) :**
 
-Le datalogger intègre un **système de feedback LED** pour monitorer son fonctionnement :
+Le datalogger intègre une **LED RGB WS2812** (GPIO7) pour un feedback visuel intelligent en phase de développement et de test :
 
-- **1 clignotement** : Mesure ajoutée au tampon flash
-- **10 clignotements rapides** : Flush des données vers la carte SD
-- **LED éteinte** : Mode deep sleep (économie d'énergie maximale)
+**📊 Signaux visuels par couleur :**
 
-Ce système permet de vérifier visuellement que l'appareil fonctionne sans perturber son cycle de sommeil.
+- 🔵 **Bleu pulsé** : Démarrage système (3 pulsations)
+- 🟢 **Vert flash** : Mesure enregistrée dans le tampon flash
+- 🔵 **Cyan→Vert** : Flush en cours vers la carte SD
+- 🟠 **Orange** : Mode transfert BLE actif
+- 🔴 **Rouge** : Erreur détectée (capteur, SD, etc.)
+- 🔵 **Bleu dim** : Entrée en deep sleep (fade progressif)
+
+**⚡ Mode VISUAL_MODE - Optimisation batterie :**
+
+La LED RGB peut être **totalement désactivée** pour maximiser l'autonomie en mission longue durée :
+
+```c
+// Mode debug/test : LED actives (défaut)
+#define VISUAL_MODE
+
+// Mode terrain : LED désactivées (décommenter)
+// #define VISUAL_MODE
+```
+
+**📉 Économies mesurées avec VISUAL_MODE désactivé :**
+
+- **RAM économisée** : -772 octets (10 348 → 9 576 bytes)
+- **Flash économisée** : -15 712 octets (352 726 → 337 014 bytes)
+- **Consommation LED** : 0 mA (vs ~1-20 mA selon intensité)
+- **Usage recommandé** : VISUAL_MODE commenté pour déploiements terrain >1 mois
+
+**🔧 Implémentation technique :**
+
+- **Driver** : RMT (Remote Control Transceiver) à 10MHz pour timing précis WS2812
+- **Protocole** : Encodage 24 bits GRB (800 kHz) via copy encoder
+- **API simplifiée** : `set_led_rgb(r, g, b, duration_ms, blink_count, blink_period_ms)`
+- **Compilation conditionnelle** : Toutes les fonctions LED désactivées si VISUAL_MODE non défini
+
+Ce système permet de **debugger visuellement sur le terrain** tout en garantissant une **autonomie maximale** en production.
 
 ## 💡 Innovation RTC : Compteur persistant entre deep sleeps
 
