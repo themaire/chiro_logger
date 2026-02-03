@@ -45,6 +45,21 @@ check_venv() {
     fi
 }
 
+# Détecter le port ESP32 automatiquement
+detect_port() {
+    # Chercher les ports USB/UART ESP32
+    if ls /dev/cu.usbmodem* 2>/dev/null | grep -q .; then
+        PORT=$(ls /dev/cu.usbmodem* | head -1)
+    elif ls /dev/cu.usbserial* 2>/dev/null | grep -q .; then
+        PORT=$(ls /dev/cu.usbserial* | head -1)
+    elif ls /dev/ttyUSB* 2>/dev/null | grep -q .; then
+        PORT=$(ls /dev/ttyUSB* | head -1)
+    else
+        PORT=""
+    fi
+    echo "$PORT"
+}
+
 # Fonction principale
 main() {
     # Vérifier les prérequis
@@ -55,24 +70,52 @@ main() {
     case "${param}" in
         "compile"|"build")
             echo -e "${BLUE}🔧 Compilation du projet...${NC}"
-            venv/bin/pio run
+            venv/bin/pio run -t clean && venv/bin/pio run
             ;;
         "flash"|"upload")
             echo -e "${BLUE}⚡ Flashage du firmware...${NC}"
-            venv/bin/pio run --target upload
+            PORT=$(detect_port)
+            if [ -z "$PORT" ]; then
+                echo -e "${RED}❌ Erreur: Aucun port ESP32 détecté${NC}"
+                echo -e "${YELLOW}💡 Utilisez: ./pio.sh list${NC}"
+                exit 1
+            fi
+            echo -e "${GREEN}✓ Port détecté: $PORT${NC}"
+            venv/bin/pio run --target upload -e lolin_c3_mini --upload-port "$PORT"
             ;;
         "monitor"|"serial")
             echo -e "${BLUE}📺 Monitoring série...${NC}"
             echo -e "${YELLOW}💡 Sortie avec Ctrl+C${NC}"
-            venv/bin/pio device monitor
+            PORT=$(detect_port)
+            if [ -z "$PORT" ]; then
+                echo -e "${RED}❌ Erreur: Aucun port ESP32 détecté${NC}"
+                echo -e "${YELLOW}💡 Utilisez: ./pio.sh list${NC}"
+                exit 1
+            fi
+            echo -e "${GREEN}✓ Port détecté: $PORT${NC}"
+            venv/bin/pio device monitor --port "$PORT"
             ;;
         "build-flash"|"bf")
             echo -e "${BLUE}🔧⚡ Compilation et flashage...${NC}"
-            venv/bin/pio run --target upload
+            PORT=$(detect_port)
+            if [ -z "$PORT" ]; then
+                echo -e "${RED}❌ Erreur: Aucun port ESP32 détecté${NC}"
+                echo -e "${YELLOW}💡 Utilisez: ./pio.sh list${NC}"
+                exit 1
+            fi
+            echo -e "${GREEN}✓ Port détecté: $PORT${NC}"
+            venv/bin/pio run --target upload -e lolin_c3_mini --upload-port "$PORT"
             ;;
         "full"|"all")
             echo -e "${BLUE}🔧⚡📺 Compilation, flashage et monitoring...${NC}"
-            venv/bin/pio run --target upload --target monitor
+            PORT=$(detect_port)
+            if [ -z "$PORT" ]; then
+                echo -e "${RED}❌ Erreur: Aucun port ESP32 détecté${NC}"
+                echo -e "${YELLOW}💡 Utilisez: ./pio.sh list${NC}"
+                exit 1
+            fi
+            echo -e "${GREEN}✓ Port détecté: $PORT${NC}"
+            venv/bin/pio run --target upload -e lolin_c3_mini --upload-port "$PORT" && venv/bin/pio device monitor --port "$PORT"
             ;;
         "clean")
             echo -e "${BLUE}🧹 Nettoyage du projet...${NC}"

@@ -1,0 +1,7 @@
+# Nom,    Type, Subtype, Offset,  Taille,  Flags
+# Note: les offsets et tailles doivent être des multiples de 4KB (0x1000)
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 0x1E0000,
+data_buffer, data, spiffs, 0x1F0000, 0xF0000,
+storage,  data, spiffs,  0x2E0000, 0x120000,
