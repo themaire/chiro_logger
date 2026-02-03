@@ -158,7 +158,7 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
     LOG_DEBUG(TAG, "✅ Mesure ajoutée au tampon flash");
     
     // Signal LED rapide pour sauvegarde
-    set_led_rgb(0, 255, 0, 50, 1, 0);  // Vert flash ultra rapide
+    set_led_rgb(0, 255, 0, 50, 1, 0, false);  // Vert flash ultra rapide
     
     return ESP_OK;
 }
@@ -235,7 +235,7 @@ esp_err_t flush_buffer_to_sd(void)
     ESP_LOGI(TAG, "✅ %d lignes copiées vers la SD", lines_copied);
     
     // Signal LED de flush réussi
-    set_led_rgb(0, 255, 0, 500, 10, 50);  // Vert 10 flashs rapides
+    set_led_rgb(0, 255, 0, 500, 10, 50, false);  // Vert 10 flashs rapides
     
     // Vider le tampon après transfert réussi
     if (remove(BUFFER_CSV_FILE) == 0) {
@@ -312,7 +312,7 @@ void handle_transfer_mode(void)
     LOG_ESSENTIAL(TAG, "💤 Retour au mode normal...");
     
     // Signal LED : BLE désactivé - Orange clignotant
-    set_led_rgb(255, 165, 0, 2000, 5, 300);  // Orange 5 clignotements
+    set_led_rgb(255, 165, 0, 2000, 5, 300, false);  // Orange 5 clignotements
 }
 
 void app_main(void)
@@ -339,7 +339,7 @@ void app_main(void)
         LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED RGB");
     } else {
         // Signal de démarrage : bleu pulsé
-        set_led_rgb(0, 0, 255, 1000, 3, 300);  // Bleu 3 clignotements
+        set_led_rgb(0, 0, 255, 1000, 3, 300, false);  // Bleu 3 clignotements
     }
 #else
     LOG_DEBUG(TAG, "🔋 LED RGB désactivées (mode économie batterie)");
@@ -404,21 +404,21 @@ void app_main(void)
         if (buffer_count >= BUFFER_FLUSH_THRESHOLD) {
             LOG_ESSENTIAL(TAG, "🔄 Seuil atteint - flush vers la carte SD...");
             // Signal LED : flush en cours - Cyan pulsé
-            set_led_rgb(0, 255, 255, 500, 2, 200);  // Cyan 2 clignotements rapides
+            set_led_rgb(0, 255, 255, 500, 2, 200, false);  // Cyan 2 clignotements rapides
             
             esp_err_t flush_result = flush_buffer_to_sd();
             if (flush_result == ESP_OK) {
                 LOG_ESSENTIAL(TAG, "✅ Flush réussi - tampon vidé");
                 // Signal LED : succès - Vert fixe
-                set_led_rgb(0, 255, 0, 500, 0, 0);  // Vert fixe 500ms
+                set_led_rgb(0, 255, 0, 500, 0, 0, false);  // Vert fixe 500ms
             } else {
                 LOG_ESSENTIAL(TAG, "⚠️  Flush échoué - données conservées dans le tampon");
                 // Signal LED : avertissement - Jaune clignotant
-                set_led_rgb(255, 255, 0, 1000, 3, 250);  // Jaune 3 clignotements
+                set_led_rgb(255, 255, 0, 1000, 3, 250, false);  // Jaune 3 clignotements
             }
         } else {
             // Mesure normale stockée - Vert flash rapide
-            set_led_rgb(0, 255, 0, 100, 1, 0);  // Vert 1 flash rapide
+            set_led_rgb(0, 255, 0, 100, 1, 0, false);  // Vert 1 flash rapide
         }
     } else {
         LOG_ESSENTIAL(TAG, "⚠️  Échec stockage tampon - tentative écriture directe SD");
@@ -431,17 +431,17 @@ void app_main(void)
             if (csv_result == ESP_OK) {
                 LOG_ESSENTIAL(TAG, "💾 Données sauvegardées directement sur SD");
                 // Signal LED : mode dégradé OK - Vert lent
-                set_led_rgb(0, 255, 0, 800, 2, 400);  // Vert 2 clignotements lents
+                set_led_rgb(0, 255, 0, 800, 2, 400, false);  // Vert 2 clignotements lents
             } else {
                 LOG_ESSENTIAL(TAG, "❌ Échec sauvegarde directe sur SD");
                 // Signal LED : erreur - Rouge clignotant rapide
-                set_led_rgb(255, 0, 0, 1000, 5, 150);  // Rouge 5 clignotements rapides
+                set_led_rgb(255, 0, 0, 1000, 5, 150, false);  // Rouge 5 clignotements rapides
             }
             unmount_sd_card();
         } else {
             LOG_ESSENTIAL(TAG, "❌ Données perdues - tampon et SD indisponibles");
             // Signal LED : erreur critique - Rouge fixe long
-            set_led_rgb(255, 0, 0, 2000, 0, 0);  // Rouge fixe 2s
+            set_led_rgb(255, 0, 0, 2000, 0, 0, false);  // Rouge fixe 2s
         }
     }
     
@@ -450,7 +450,7 @@ void app_main(void)
     LOG_DEBUG(TAG, "🔘 Réveil possible par bouton GPIO %d pour mode transfert", WAKEUP_BUTTON_PIN);
     
     // Signal LED avant deep sleep - Bleu fade out
-    set_led_rgb(0, 0, 50, 500, 1, 0);  // Bleu dim 1 flash
+    set_led_rgb(0, 0, 50, 500, 1, 0, false);  // Bleu dim 1 flash
     led_off();  // Éteindre explicitement
     
     // Configurer le réveil par timer

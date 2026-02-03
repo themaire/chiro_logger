@@ -8,7 +8,7 @@
 static const char *TAG = "LED_RGB";
 
 // Configuration LED RGB WS2812
-#define LED_RGB_PIN GPIO_NUM_7  // LED WS2812 sur LOLIN C3 Mini
+#define LED_RGB_PIN GPIO_NUM_7  // LED WS2812 intégrée sur LOLIN C3 PICO
 #define LED_RGB_COUNT 1         // Nombre de LEDs dans la chaîne
 
 // Timings WS2812 (en nanosecondes)
@@ -31,8 +31,8 @@ static rmt_channel_handle_t led_chan = NULL;
 static void ws2812_send_pixel(uint8_t r, uint8_t g, uint8_t b) {
     if (led_chan == NULL) return;
     
-    // WS2812 utilise l'ordre GRB
-    uint32_t grb = (g << 16) | (r << 8) | b;
+    // WS2812 utilise l'ordre GRB, mais cette LED semble avoir R et B inversés
+    uint32_t grb = (g << 16) | (b << 8) | r;
     
     // Créer les symboles RMT (24 bits pour GRB)
     rmt_symbol_word_t led_data[24];
@@ -114,10 +114,13 @@ esp_err_t init_led_rgb(void) {
     return ESP_OK;
 }
 
-void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t blink_count, uint32_t blink_period_ms) {
+void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t blink_count, uint32_t blink_period_ms, bool force_display) {
 #ifndef VISUAL_MODE
     // Mode terrain : LED désactivées pour économie batterie
-    return;
+    // SAUF si force_display = true (erreurs critiques)
+    if (!force_display) {
+        return;
+    }
 #endif
     
     if (led_chan == NULL) {
@@ -150,9 +153,8 @@ void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t 
 }
 
 void led_off(void) {
-#ifndef VISUAL_MODE
-    return;  // LED désactivées en mode terrain
-#endif
+    // Toujours permettre d'éteindre la LED (même en mode terrain)
+    // car cela peut être nécessaire pour les signalisations d'urgence
     if (led_chan != NULL) {
         ws2812_send_pixel(0, 0, 0);
     }

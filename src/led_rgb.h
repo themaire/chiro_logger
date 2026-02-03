@@ -2,6 +2,7 @@
 #define LED_RGB_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <esp_err.h>
 
 /**
@@ -34,15 +35,16 @@ esp_err_t init_led_rgb(void);
  * @param duration_ms Durée totale d'allumage en millisecondes
  * @param blink_count Nombre de clignotements (0 = allumage continu)
  * @param blink_period_ms Période entre clignotements en millisecondes (ignoré si blink_count = 0)
+ * @param force_display Force l'affichage même si VISUAL_MODE désactivé (pour erreurs critiques)
  * 
- * Note: Ne fait rien si VISUAL_MODE n'est pas défini (économie batterie)
+ * Note: Ne fait rien si VISUAL_MODE n'est pas défini, SAUF si force_display = true
  * 
  * Exemples d'utilisation:
- * - set_led_rgb(255, 0, 0, 1000, 0, 0);        // Rouge fixe pendant 1s
- * - set_led_rgb(0, 255, 0, 2000, 5, 200);      // Vert clignotant 5x avec 200ms entre clignotements
- * - set_led_rgb(0, 0, 255, 3000, 10, 150);     // Bleu clignotant 10x avec 150ms entre clignotements
+ * - set_led_rgb(255, 0, 0, 1000, 0, 0, false);        // Rouge fixe pendant 1s
+ * - set_led_rgb(0, 255, 0, 2000, 5, 200, false);      // Vert clignotant 5x avec 200ms entre clignotements
+ * - set_led_rgb(255, 0, 0, 3000, 10, 150, true);      // Rouge clignotant FORCÉ même en production
  */
-void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t blink_count, uint32_t blink_period_ms);
+void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t blink_count, uint32_t blink_period_ms, bool force_display);
 
 /**
  * @brief Éteint la LED RGB

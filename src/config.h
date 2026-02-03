@@ -38,7 +38,7 @@
 // ============================================================================
 // 🔘 CONFIGURATION BOUTON RÉVEIL
 // ============================================================================
-#define WAKEUP_BUTTON_PIN GPIO_NUM_0  // Bouton BOOT sur LOLIN C3 Mini
+#define WAKEUP_BUTTON_PIN GPIO_NUM_2  // Bouton réveil BLE sur GPIO2 (compatible deep sleep)
 #define WAKEUP_BUTTON_LEVEL 0         // Niveau bas = appuyé (pull-up)
 
 #endif // CONFIG_H

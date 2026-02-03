@@ -95,6 +95,58 @@ Le datalogger utilise un système de **tampon flash interne** pour optimiser l'u
 2. **Économie d'énergie** : La carte SD n'est activée que lors du **flush périodique**
 3. **Flush automatique** : Transfert des données vers la SD toutes les **500 mesures** (optimisé)
 
+## 🗂️ Système SPIFFS - Tampon flash intelligent
+
+**SPIFFS** (SPI Flash File System) est un **système de fichiers** spécialement conçu pour les puces de mémoire flash comme celles des ESP32.
+
+### 📍 Principe technique
+
+- **Flash interne** : Utilise directement la flash de l'ESP32 (pas de carte SD)
+- **Usure uniforme** : Répartit les écritures sur toute la partition pour éviter l'usure
+- **Résistant aux pannes** : Supporte les coupures de courant inattendues
+- **API standard** : Fonctions POSIX (fopen, fwrite, fread, etc.)
+
+### 💾 Layout flash ESP32-C3
+
+```
+Flash ESP32-C3 (4MB total) :
+├── Bootloader     (~64KB)
+├── Partitions     (~4KB) 
+├── nvs            (~24KB)     # Stockage clé-valeur
+├── otadata        (~8KB)      # OTA updates
+├── app0           (~1.5MB)    # Firmware principal
+├── app1           (~1.5MB)    # Firmware backup (OTA)
+└── data_buffer    (~960KB)    # 🎯 PARTITION SPIFFS TAMPON
+```
+
+### 🎯 Utilisation dans Chiro Logger
+
+**Tampon de données rapide :**
+```c
+// Écriture dans la flash interne (ultra-rapide)
+FILE *buffer_file = fopen("/buffer/data_buffer.csv", "a");
+fprintf(buffer_file, "%d,%.2f,%.2f\n", id, temp, hum);
+fclose(buffer_file);
+```
+
+**Transfert périodique vers SD :**
+```c
+// Transfert tampon → SD toutes les 500 mesures
+FILE *src = fopen("/buffer/data_buffer.csv", "r");
+FILE *dest = fopen("/sdcard/CHIRO/data.csv", "a");
+// Copie et vide le tampon
+```
+
+### ✨ Avantages pour l'autonomie
+
+1. **🚀 Performance** : Flash interne = lecture/écriture très rapide
+2. **🔋 Économie d'énergie** : SD activée seulement toutes les 500 mesures
+3. **🛡️ Fiabilité** : Données préservées même si SD absente/défaillante
+4. **📊 Buffer intelligent** : Accumule les mesures avant transfert SD
+5. **⚡ Deep sleep optimisé** : Réveils courts pour écrire en flash
+
+> 💡 **Résultat :** SPIFFS donne un "disque dur virtuel" dans la flash de l'ESP32, parfait pour un tampon de données robuste et ultra-rapide !
+
 **🕒 Timing avec mesures toutes les 5 secondes :**
 
 - **Mesures 1-499** : Stockées dans le tampon flash
@@ -147,6 +199,14 @@ Le datalogger intègre une **LED RGB WS2812** (GPIO7) pour un feedback visuel in
 - 🔴 **Rouge** : Erreur détectée (capteur, SD, etc.)
 - 🔵 **Bleu dim** : Entrée en deep sleep (fade progressif)
 
+**🚨 Signaux d'erreur critique (force_display = true) :**
+
+- 🔴 **Rouge clignotant rapide** : Carte SD inaccessible (10 flashs / 5s)
+- 🔴 **Rouge fixe long** : Données perdues - tampon et SD indisponibles
+- 🔴 **Rouge pulsé** : Capteur I2C défaillant
+
+> 💡 **Note :** Les signaux d'erreur critique s'affichent **même en mode PRODUCTION** (VISUAL_MODE désactivé) pour garantir la visibilité des pannes critiques sur le terrain.
+
 **⚡ Mode VISUAL_MODE - Optimisation batterie :**
 
 La LED RGB peut être **totalement désactivée** pour maximiser l'autonomie en mission longue durée :
@@ -177,22 +237,60 @@ Ce système permet de **debugger visuellement sur le terrain** tout en garantiss
 
 ## 💡 Innovation RTC : Compteur persistant entre deep sleeps
 
-🚀 **Pourquoi c'est techniquement stylé :**
+🚀 **Pourquoi c'est techniquement révolutionnaire :**
 
 La plupart des dataloggers "oublient" combien de mesures ils ont effectuées à chaque réveil. Ce datalogger utilise la **RTC Memory** de l'ESP32 pour maintenir un **compteur global persistant** !
 
-**🔧 Implémentation technique :**
+### 🧠 RTC Memory de l'ESP32 - Fonctionnement
 
+La **RTC Memory** est une **zone de RAM spéciale** (8KB) dans l'ESP32 qui :
+
+- **Survit au deep sleep** : Alimentée en continu par le RTC (Real-Time Clock)
+- **Consommation ultra-faible** : ~1-2 µA (inclus dans la consommation deep sleep)
+- **Accès rapide** : RAM normale, pas de flash/EEPROM lente
+- **Reset lors du redémarrage complet** : Mais PAS lors des réveils de deep sleep
+- **Persistent entre cycles** : Variable maintenue pendant des semaines/mois
+
+### 🔧 Implémentation technique
+
+**Déclaration persistante :**
 ```c
 // Variable stockée en RTC Memory - survit au deep sleep !
 RTC_DATA_ATTR int cycle_counter = 0;
 
-// À chaque réveil :
+// À chaque réveil de deep sleep :
 cycle_counter++;  // Le compteur continue de compter !
 ESP_LOGI(TAG, "📊 Cycle de mesure #%d", cycle_counter);
 
 // L'ID est utilisé comme première colonne du CSV
 add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
+```
+
+### 🎯 Gestion intelligente des resets
+
+**✅ Réveil normal (deep sleep) :**
+```text
+Démarrage système:    cycle_counter = 0
+1er réveil:          cycle_counter = 1 ✅
+2ème réveil:         cycle_counter = 2 ✅
+1000ème réveil:      cycle_counter = 1000 ✅
+```
+
+**🔄 Reset complet (redémarrage/coupure) :**
+```text
+Démarrage système:    Lecture du dernier ID depuis SD
+Initialisation:      cycle_counter = max_id_from_SD
+1er réveil:          cycle_counter = max_id + 1 ✅
+```
+
+**🛠️ Fonction de continuité :**
+```c
+// Au démarrage initial, lire l'ID max depuis la SD
+esp_err_t init_cycle_counter_from_sd(void) {
+    // Si SD disponible, trouve le dernier ID
+    // Sinon, démarre à 0
+    cycle_counter = max_id_found;
+}
 ```
 
 **📄 Format CSV enrichi :**
@@ -353,6 +451,131 @@ L'amélioration spectaculaire de **+81% d'autonomie** démontre l'efficacité de
 
 **💡 Conclusion :** Les optimisations de logs et de gestion énergétique permettent de **quasi-doubler l'autonomie** !
 
+## 🏗️ Architecture modulaire du code
+
+Le firmware du Chiro Logger a été **entièrement refactorisé** pour une meilleure maintenabilité et réutilisabilité :
+
+### 📁 Structure des modules
+
+```
+src/
+├── main.c              # Logique principale (~320 lignes)
+├── config.h            # Configuration globale partagée
+├── led_rgb.h/c         # Module LED RGB WS2812
+├── sd_card.h/c         # Module carte microSD
+├── flash_buffer.h/c    # Module tampon flash (à implémenter)
+└── CMakeLists.txt      # Configuration build
+```
+
+### 🎨 Module LED RGB (led_rgb.h/c)
+
+**Responsabilité :** Contrôle de la LED RGB WS2812 pour feedback visuel
+
+```c
+// API simplifiée avec gestion des erreurs critiques
+esp_err_t init_led_rgb(void);
+void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, 
+                  uint8_t blink_count, uint32_t blink_period_ms, bool force_display);
+void led_off(void);
+```
+
+**Fonctionnalités :**
+- Driver RMT optimisé pour timing WS2812 précis
+- Support de VISUAL_MODE (compilation conditionnelle)
+- Patterns de clignotement configurables
+- Gestion automatique de l'encodage GRB 24 bits
+- **🚨 Mode force_display** : Outrepasse VISUAL_MODE pour erreurs critiques
+
+**🔧 Paramètre force_display :**
+```c
+// Utilisation normale (respecte VISUAL_MODE)
+set_led_rgb(0, 255, 0, 1000, 3, 300, false);  // Vert si VISUAL_MODE activé
+
+// Erreur critique (FORCE l'affichage même en production)
+set_led_rgb(255, 0, 0, 5000, 10, 250, true);  // Rouge FORCÉ même si VISUAL_MODE désactivé
+```
+
+**🎯 Cas d'usage force_display = true :**
+- 🔴 **Carte SD inaccessible** : Signal critique au démarrage
+- 🔴 **Capteur défaillant** : Indication de panne matérielle
+- 🔴 **Corruption de données** : Alert système
+- 🔴 **Batterie critique** : Warning avant arrêt
+
+### 💾 Module SD Card (sd_card.h/c)
+
+**Responsabilité :** Gestion complète de la carte microSD
+
+```c
+// API robuste
+esp_err_t init_sd_card(void);
+esp_err_t test_sd_card(void);
+esp_err_t unmount_sd_card(void);
+esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, 
+                          float temperature, float humidity);
+```
+
+**Fonctionnalités :**
+- Configuration SPI automatique (pins ESP32-C3)
+- Montage/démontage propre du système FAT
+- Création automatique des répertoires
+- Gestion d'erreurs complète avec diagnostics
+
+**⚠️ Subtilité côté SPI :** Sur la LOLIN C3 Mini + shield microSD/RTC type D1 Mini, la carte ne monte pas si le bus SPI n'est pas initialisé **avant** l'appel à `esp_vfs_fat_sdspi_mount()`. Il faut d'abord appeler `spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO)` avec la bonne cartographie (CLK=GPIO1, MISO=GPIO0, MOSI=GPIO4, CS=GPIO5), puis seulement monter la SD. Sans cette étape, le driver FAT n'initialise pas les GPIOs et renvoie des erreurs (timeouts ou `ESP_ERR_NO_MEM`). ( Un jour et une soirée de debug pour comprendre pourquoi. )
+
+### ⚙️ Configuration globale (config.h)
+
+**Responsabilité :** Centralisation de tous les paramètres
+
+```c
+// Flags de compilation
+#define VISUAL_MODE      // Active/désactive les LEDs
+//#define PRODUCTION_MODE  // Mode logs minimaux
+
+// Paramètres système
+#define DEEP_SLEEP_DURATION_SEC 5
+#define BUFFER_FLUSH_THRESHOLD 500
+#define WAKEUP_BUTTON_PIN GPIO_NUM_0
+```
+
+**Avantages :**
+- Configuration partagée entre tous les modules
+- Compilation conditionnelle centralisée
+- Paramètres facilement modifiables
+
+### 🔧 Intégration dans CMakeLists.txt
+
+```cmake
+idf_component_register(
+    SRCS "main.c" "led_rgb.c" "sd_card.c"  # Tous les sources
+    INCLUDE_DIRS "."                        # Headers locaux
+    REQUIRES driver esp_timer fatfs...      # Dépendances ESP-IDF
+)
+```
+
+### ✨ Bénéfices de la refactorisation
+
+**🧹 Code plus propre :**
+- main.c réduit de ~890 à ~320 lignes
+- Séparation claire des responsabilités
+- Réduction de la complexité cognitive
+
+**🔄 Réutilisabilité :**
+- Modules indépendants réutilisables
+- APIs documentées et cohérentes
+- Tests modulaires possibles
+
+**🚀 Maintenabilité :**
+- Modifications localisées par fonctionnalité
+- Debugging simplifié
+- Ajout de nouvelles fonctions facilité
+
+**📦 Extensibilité future :**
+- Ajout facile de nouveaux capteurs (I2C, SPI...)
+- Intégration BLE modulaire
+- Support multi-plateformes (ESP32 classique ↔ ESP32-C3)
+
+Cette architecture modulaire facilite grandement le développement et la maintenance du projet !
+
 ## �️ Configuration de l'environnement de développement
 
 ### 📋 Prérequis
@@ -468,16 +691,21 @@ pio device monitor
 
 ```
 chiro_logger/
-├── src/
-│   └── main.c                    # Programme principal
-├── components/
-│   └── ble_transfer/             # Module BLE
+├── 📁 src/                       # Code source principal
+│   ├── 🎯 main.c                 # Logique principale (~320 lignes)
+│   ├── ⚙️ config.h              # Configuration globale partagée
+│   ├── 🎨 led_rgb.h/.c          # Module LED RGB WS2812 + RMT
+│   ├── 💾 sd_card.h/.c          # Module carte SD SPI + FAT32
+│   └── 🔧 CMakeLists.txt         # Configuration build ESP-IDF
+├── 📁 components/                # Modules ESP-IDF externes
+│   └── ble_transfer/             # Module BLE (à implémenter)
 │       ├── ble_manager.h
 │       ├── ble_manager.c
 │       └── CMakeLists.txt
-├── platformio.ini                # Configuration PlatformIO
-├── sdkconfig.defaults            # Configuration ESP-IDF
-└── README.md
+├── 📄 partitions.csv             # Layout flash (SPIFFS + OTA)
+├── 📁 platformio.ini             # Configuration PlatformIO
+├── 📄 sdkconfig.defaults         # Configuration ESP-IDF
+└── 📄 README.md                  # Documentation complète
 ```
 
 ---
