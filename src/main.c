@@ -70,7 +70,8 @@ void handle_transfer_mode(void);
     #define LOG_VERBOSE(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
 #endif
 
-// Fonction d'initialisation du tampon flash (partition SPIFFS)
+// Fonction d'initialisation du tampon flash (partition SPIFFS qui 
+// ne consomme pas de SD et ne s'efface pas en cas de coupure d'alimentation)
 esp_err_t init_flash_buffer(void)
 {
     LOG_DEBUG(TAG, "🔋 Initialisation du tampon flash énergétique...");
@@ -164,6 +165,7 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
 }
 
 // Fonction pour compter les lignes dans le tampon flash
+// sert à décider quand faire un flush vers la SD
 int count_buffer_lines(void)
 {
     FILE *file = fopen(BUFFER_CSV_FILE, "r");
@@ -183,6 +185,7 @@ int count_buffer_lines(void)
 }
 
 // Fonction pour transférer le tampon flash vers la carte SD
+// sert à libérer de l'espace dans le tampon
 esp_err_t flush_buffer_to_sd(void)
 {
     ESP_LOGI(TAG, "🔄 Flush du tampon flash vers la carte SD...");
@@ -251,6 +254,7 @@ esp_err_t flush_buffer_to_sd(void)
 }
 
 // Fonction de diagnostic du réveil
+// sert à afficher la cause du réveil et le compteur persistant
 void print_wakeup_info(void)
 {
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
@@ -276,6 +280,7 @@ void print_wakeup_info(void)
 }
 
 // Fonction d'initialisation du bouton de réveil
+// sert à configurer le GPIO et le mode wakeup
 esp_err_t init_wakeup_button(void)
 {
     // Configurer le bouton comme entrée avec pull-up
@@ -306,6 +311,7 @@ esp_err_t init_wakeup_button(void)
 }
 
 // Fonction pour gérer le mode transfert BLE (désactivée temporairement)
+// sert à gérer le mode transfert BLE (désactivée temporairement)
 void handle_transfer_mode(void)
 {
     LOG_ESSENTIAL(TAG, "🔘 Mode transfert BLE désactivé temporairement");
@@ -332,19 +338,19 @@ void app_main(void)
     // Configuration initiale
     LOG_DEBUG(TAG, "Initialisation du système...");
     
-#ifdef VISUAL_MODE
-    // Initialiser la LED RGB pour feedback visuel (uniquement si VISUAL_MODE activé)
-    esp_err_t ret = init_led_rgb();
-    if (ret != ESP_OK) {
-        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED RGB");
-    } else {
-        // Signal de démarrage : bleu pulsé
-        set_led_rgb(0, 0, 255, 1000, 3, 300, false);  // Bleu 3 clignotements
-    }
-#else
-    LOG_DEBUG(TAG, "🔋 LED RGB désactivées (mode économie batterie)");
-    esp_err_t ret;
-#endif
+    #ifdef VISUAL_MODE
+        // Initialiser la LED RGB pour feedback visuel (uniquement si VISUAL_MODE activé)
+        esp_err_t ret = init_led_rgb();
+        if (ret != ESP_OK) {
+            LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED RGB");
+        } else {
+            // Signal de démarrage : bleu pulsé
+            set_led_rgb(0, 0, 255, 1000, 3, 300, false);  // Bleu 3 clignotements
+        }
+    #else
+        LOG_DEBUG(TAG, "🔋 LED RGB désactivées (mode économie batterie)");
+        esp_err_t ret;
+    #endif
     
     // Initialiser le bouton de réveil pour le mode transfert
     ret = init_wakeup_button();

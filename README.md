@@ -520,7 +520,9 @@ esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime,
 - Création automatique des répertoires
 - Gestion d'erreurs complète avec diagnostics
 
-**⚠️ Subtilité côté SPI :** Sur la LOLIN C3 Mini + shield microSD/RTC type D1 Mini, la carte ne monte pas si le bus SPI n'est pas initialisé **avant** l'appel à `esp_vfs_fat_sdspi_mount()`. Il faut d'abord appeler `spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO)` avec la bonne cartographie (CLK=GPIO1, MISO=GPIO0, MOSI=GPIO4, CS=GPIO5), puis seulement monter la SD. Sans cette étape, le driver FAT n'initialise pas les GPIOs et renvoie des erreurs (timeouts ou `ESP_ERR_NO_MEM`). ( Un jour et une soirée de debug pour comprendre pourquoi. )
+**⚠️ Subtilité côté SPI :** Sur la LOLIN C3 Mini + shield microSD/RTC type D1 Mini, la carte ne monte pas si le bus SPI n'est pas initialisé **avant** l'appel à `esp_vfs_fat_sdspi_mount()`. Il faut d'abord appeler `spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO)` avec la bonne cartographie (CLK=GPIO1, MISO=GPIO0, MOSI=GPIO4, CS=GPIO5), puis seulement monter la SD. Sans cette étape, le driver FAT n'initialise pas les GPIOs et renvoie des erreurs (timeouts ou `ESP_ERR_NO_MEM`).
+
+**📚 Dépendances SDK utiles :** L'init s'appuie sur les headers ESP-IDF SPI/SDSPI (`driver/spi_master.h`, `driver/spi_common.h`, `driver/sdspi_host.h`) qui exposent `spi_bus_initialize()` et les macros `SDSPI_HOST_DEFAULT()` / `SDSPI_DEVICE_CONFIG_DEFAULT()` utilisées dans `sd_card.c`.
 
 ### ⚙️ Configuration globale (config.h)
 
