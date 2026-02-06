@@ -465,7 +465,7 @@ src/
 ├── sd_card.h/c         # Module carte microSD
 ├── battery.h/c         # Module mesure batterie (ADC)
 ├── rtc_clock.h/c       # Module horloge RTC DS1307 (I2C)
-├── flash_buffer.h/c    # Module tampon flash (à implémenter)
+├── sht45.h/c           # Module capteur SHT45 (température + humidité)
 └── CMakeLists.txt      # Configuration build
 ```
 
@@ -598,37 +598,112 @@ if (now.year < 2024) {
 
 > 💡 **Précision :** Décalage de ~10-30s max (temps de flash après compilation). La pile CR2032 maintient ensuite l'heure indéfiniment. Plus tard, le BLE permettra une synchronisation à la seconde près depuis l'appli Angular.
 
-**📚 Bus I2C partagé :** Le bus I2C (SDA=GPIO8, SCL=GPIO10) sera partagé avec le capteur SHT45 (adresse 0x44) quand celui-ci sera intégré.
+**📚 Bus I2C partagé :** Le bus I2C (SDA=GPIO8, SCL=GPIO10) est **partagé avec le capteur SHT45** (adresse 0x44). Le module RTC expose le handle du bus via `rtc_get_i2c_bus()` pour que le SHT45 puisse s'y rattacher sans recréer le bus.
+
+### 🌡️ Module Capteur SHT45 (sht45.h/c)
+
+**Responsabilité :** Mesure de la température et de l'humidité via le capteur Sensirion SHT45
+
+```c
+// API SHT45
+esp_err_t init_sht45(i2c_master_bus_handle_t bus_handle);  // Init sur bus I2C existant
+esp_err_t read_sht45(sht45_data_t *data);                  // Lecture temp (°C) + humidité (%)
+esp_err_t deinit_sht45(void);                              // Libération du device I2C
+```
+
+**Fonctionnalités :**
+- Communication I2C avec le SHT45 (adresse 0x44, bus partagé avec DS1307)
+- Mesure **haute précision** (commande 0xFD) : ±0.1°C / ±1% RH
+- **Vérification CRC-8** (polynôme 0x31) sur chaque valeur reçue
+- **Retry automatique** avec backoff (3 tentatives, 10 ms entre chaque) en cas de NACK
+- **Soft reset** du capteur à l'initialisation pour état propre
+- **Calibration configurable** via offsets dans `config.h`
+- Fallback sur valeurs simulées si capteur indisponible
+
+**🔗 Partage du bus I2C :**
+
+Le SHT45 ne crée pas son propre bus I2C. Il se rattache au bus existant créé par le module RTC :
+
+```c
+// Séquence dans app_main()
+init_rtc();                                    // 1. Crée le bus I2C + init DS1307
+i2c_master_bus_handle_t bus = rtc_get_i2c_bus(); // 2. Récupère le handle du bus
+init_sht45(bus);                               // 3. Ajoute le SHT45 sur le même bus
+read_sht45(&data);                             // 4. Lecture température + humidité
+deinit_sht45();                                // 5. Retire le SHT45 du bus
+deinit_rtc();                                  // 6. Détruit le bus I2C
+```
+
+**🔧 Calibration :**
+
+Les offsets de calibration sont définis dans `config.h` et appliqués automatiquement après conversion :
+
+```c
+#define SHT45_TEMP_OFFSET     -1.7f  // Correction température en °C
+#define SHT45_HUMIDITY_OFFSET  0.0f   // Correction humidité en %RH
+```
+
+> 💡 **Astuce calibration :** Comparer la sonde avec un thermomètre de référence, puis ajuster `SHT45_TEMP_OFFSET` dans `config.h`. Pas besoin de modifier le code du driver.
+
+**🧪 Mode test (TEST_SHT45) :**
+
+Un mode de test dédié permet de valider le capteur sur breadboard sans le shield RTC/SD :
+
+```c
+// Décommenter dans config.h pour activer
+#define TEST_SHT45
+```
+
+Ce mode crée un `app_main()` simplifié qui :
+- Initialise le bus I2C directement (pas besoin du DS1307)
+- Lit la sonde en boucle toutes les 2 secondes
+- Affiche un tableau formaté sur le moniteur série
+
+```text
+🧪 === MODE TEST SHT45 ===
+✅ Bus I2C initialisé
+✅ SHT45 détecté - Début des lectures (toutes les 2s)
+  #  |  Température  |  Humidité
+-----|--------------|----------
+  1  |    20.05 °C   |  47.77 %
+  2  |    20.07 °C   |  47.72 %
+```
 
 ### ⚙️ Configuration globale (config.h)
 
 **Responsabilité :** Centralisation de tous les paramètres
 
 ```c
-// Flags de compilation
-#define VISUAL_MODE      // Active/désactive les LEDs
-//#define PRODUCTION_MODE  // Mode logs minimaux
+// Modes de compilation
+// #define TEST_SHT45       // Mode test sonde (lecture en boucle sur moniteur série)
+#define VISUAL_MODE         // Active/désactive les LEDs
+// #define PRODUCTION_MODE  // Mode logs minimaux
 
 // Paramètres système
 #define DEEP_SLEEP_DURATION_SEC 5
-#define BUFFER_FLUSH_THRESHOLD 500
+#define BUFFER_FLUSH_THRESHOLD 20
 #define WAKEUP_BUTTON_PIN GPIO_NUM_2
 
 // Bus I2C (RTC DS1307 + SHT45)
 #define I2C_SDA_PIN  8   // D2 → GPIO8
 #define I2C_SCL_PIN  10  // D1 → GPIO10
+
+// Calibration SHT45 (offsets ajoutés aux valeurs brutes)
+#define SHT45_TEMP_OFFSET     -1.7f  // Correction température en °C
+#define SHT45_HUMIDITY_OFFSET  0.0f   // Correction humidité en %RH
 ```
 
 **Avantages :**
 - Configuration partagée entre tous les modules
 - Compilation conditionnelle centralisée
 - Paramètres facilement modifiables
+- Calibration capteur ajustable sans toucher au code
 
 ### 🔧 Intégration dans CMakeLists.txt
 
 ```cmake
 idf_component_register(
-    SRCS "main.c" "led_rgb.c" "sd_card.c" "battery.c" "rtc_clock.c"
+    SRCS "main.c" "led_rgb.c" "sd_card.c" "battery.c" "rtc_clock.c" "sht45.c"
     INCLUDE_DIRS "."                        # Headers locaux
     REQUIRES driver esp_timer fatfs sdmmc spiffs esp_adc
 )
@@ -774,10 +849,13 @@ pio device monitor
 ```
 chiro_logger/
 ├── 📁 src/                       # Code source principal
-│   ├── 🎯 main.c                 # Logique principale (~320 lignes)
+│   ├── 🎯 main.c                 # Logique principale
 │   ├── ⚙️ config.h              # Configuration globale partagée
 │   ├── 🎨 led_rgb.h/.c          # Module LED RGB WS2812 + RMT
 │   ├── 💾 sd_card.h/.c          # Module carte SD SPI + FAT32
+│   ├── 🔋 battery.h/.c          # Module mesure batterie (ADC)
+│   ├── 🕐 rtc_clock.h/.c        # Module horloge RTC DS1307 (I2C)
+│   ├── 🌡️ sht45.h/.c            # Module capteur SHT45 (I2C)
 │   └── 🔧 CMakeLists.txt         # Configuration build ESP-IDF
 ├── 📁 components/                # Modules ESP-IDF externes
 │   └── ble_transfer/             # Module BLE (à implémenter)
