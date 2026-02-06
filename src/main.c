@@ -61,6 +61,7 @@ RTC_DATA_ATTR int cycle_counter = 0;
 void print_wakeup_info(void);
 esp_err_t init_wakeup_button(void);
 void handle_transfer_mode(void);
+void emergency_mode(const char *reason);
 
 // Macros pour logs économes en énergie
 #ifdef PRODUCTION_MODE
@@ -399,6 +400,16 @@ void handle_transfer_mode(void)
     set_led_rgb(255, 165, 0, 2000, 5, 300, false);  // Orange 5 clignotements
 }
 
+// Fonction de signalement d'urgence
+// Clignote la LED en rouge vif même si VISUAL_MODE est désactivé (force_display = true)
+// Utilisée quand une erreur critique survient (SD absente, données perdues, etc.)
+void emergency_mode(const char *reason)
+{
+    LOG_ESSENTIAL(TAG, "🚨 MODE URGENCE: %s", reason);
+    // Rouge vif clignotant rapide - FORCE l'affichage même sans VISUAL_MODE
+    set_led_rgb(255, 0, 0, 5000, 50, 250, true);
+}
+
 #ifdef TEST_SHT45
 // ============================================================================
 // 🧪 MODE TEST SHT45 - Procédure temporaire de test sonde
@@ -633,8 +644,7 @@ void app_main(void)
                 set_led_rgb(0, 255, 0, 500, 0, 0, false);  // Vert fixe 500ms
             } else {
                 LOG_ESSENTIAL(TAG, "⚠️  Flush échoué - données conservées dans le tampon");
-                // Signal LED : avertissement - Jaune clignotant
-                set_led_rgb(255, 255, 0, 1000, 3, 250, false);  // Jaune 3 clignotements
+                emergency_mode("Flush SD échoué - carte SD absente ou défaillante");
             }
         } else {
             // Mesure normale stockée - Vert flash rapide
@@ -659,14 +669,12 @@ void app_main(void)
                 set_led_rgb(0, 255, 0, 800, 2, 400, false);  // Vert 2 clignotements lents
             } else {
                 LOG_ESSENTIAL(TAG, "❌ Échec sauvegarde directe sur SD");
-                // Signal LED : erreur - Rouge clignotant rapide
-                set_led_rgb(255, 0, 0, 1000, 5, 150, false);  // Rouge 5 clignotements rapides
+                emergency_mode("Écriture SD échouée");
             }
             unmount_sd_card();
         } else {
             LOG_ESSENTIAL(TAG, "❌ Données perdues - tampon et SD indisponibles");
-            // Signal LED : erreur critique - Rouge fixe long
-            set_led_rgb(255, 0, 0, 2000, 0, 0, false);  // Rouge fixe 2s
+            emergency_mode("Données perdues - tampon et SD indisponibles");
         }
     }
     

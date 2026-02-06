@@ -87,7 +87,7 @@ esp_err_t init_battery(void)
     // Tenter la calibration (non bloquant si échoue)
     init_adc_calibration();
 
-    ESP_LOGI(TAG, "✅ ADC batterie initialisé (GPIO3, ADC1_CH3, 12dB)");
+    ESP_LOGI(TAG, "🔋 ADC batterie initialisé (GPIO3, ADC1_CH3, 12dB)");
     return ESP_OK;
 }
 
