@@ -41,4 +41,11 @@
 #define WAKEUP_BUTTON_PIN GPIO_NUM_2  // Bouton réveil BLE sur GPIO2 (compatible deep sleep)
 #define WAKEUP_BUTTON_LEVEL 0         // Niveau bas = appuyé (pull-up)
 
+// ============================================================================
+// 🕐 CONFIGURATION I2C - RTC DS1307 + Capteur SHT45
+// ============================================================================
+// D1 Mini shield → C3 Mini/PICO : D2(SDA)→GPIO8, D1(SCL)→GPIO10
+#define I2C_SDA_PIN  8   // D2 → GPIO8  - SDA (données I2C)
+#define I2C_SCL_PIN  10  // D1 → GPIO10 - SCL (horloge I2C)
+
 #endif // CONFIG_H

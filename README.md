@@ -9,7 +9,7 @@
 
 ## 🎯 Objectif
 
-Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température**, de l’**humidité** et de la **pression atmosphérique** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
+Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température** et l’**humidité** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
 
 L’objectif est de récolter des données environnementales précises, sans perturber les conditions locales, afin de mieux comprendre les dynamiques microclimatiques des sites d’hivernage.
 
@@ -42,7 +42,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 #### 🔁 Mode normal (acquisition)
 
 - Réveil toutes les X minutes (configurable)
-- Lecture des capteurs BME280 + tension batterie
+- Lecture des capteurs SHT45 + tension batterie
 - Horodatage via RTC
 - Enregistrement sur carte SD au format CSV
 - Remise en sommeil profond (deep sleep)
@@ -459,10 +459,12 @@ Le firmware du Chiro Logger a été **entièrement refactorisé** pour une meill
 
 ```
 src/
-├── main.c              # Logique principale (~320 lignes)
+├── main.c              # Logique principale
 ├── config.h            # Configuration globale partagée
 ├── led_rgb.h/c         # Module LED RGB WS2812
 ├── sd_card.h/c         # Module carte microSD
+├── battery.h/c         # Module mesure batterie (ADC)
+├── rtc_clock.h/c       # Module horloge RTC DS1307 (I2C)
 ├── flash_buffer.h/c    # Module tampon flash (à implémenter)
 └── CMakeLists.txt      # Configuration build
 ```
@@ -524,6 +526,80 @@ esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime,
 
 **📚 Dépendances SDK utiles :** L'init s'appuie sur les headers ESP-IDF SPI/SDSPI (`driver/spi_master.h`, `driver/spi_common.h`, `driver/sdspi_host.h`) qui exposent `spi_bus_initialize()` et les macros `SDSPI_HOST_DEFAULT()` / `SDSPI_DEVICE_CONFIG_DEFAULT()` utilisées dans `sd_card.c`.
 
+### 🔋 Module Batterie (battery.h/c)
+
+**Responsabilité :** Mesure de la tension batterie LiPo via ADC
+
+```c
+// API batterie
+esp_err_t init_battery(void);
+esp_err_t read_battery(battery_info_t *info);  // voltage (V) + pourcentage (%)
+esp_err_t deinit_battery(void);
+```
+
+**Fonctionnalités :**
+- Lecture ADC1 canal 3 (GPIO3) avec atténuation 12dB
+- **Calibration automatique** via curve fitting (ESP32-C3)
+- Moyennage sur 16 lectures pour stabilité
+- Prise en compte du **diviseur de tension ×2** (100K/100K du LOLIN C3 Mini)
+- Conversion en pourcentage : 4.2V = 100%, 3.0V = 0% (courbe LiPo)
+- Libération immédiate de l'ADC après lecture (économie deep sleep)
+
+**📊 Utilisation dans app_main :**
+```c
+battery_info_t bat;
+init_battery();
+read_battery(&bat);
+ESP_LOGI(TAG, "🔋 Batterie: %.2fV (%d%%)", bat.voltage, bat.percentage);
+deinit_battery();
+```
+
+> 💡 **À terme :** La valeur batterie sera transmise via BLE à l'appli Angular pour affichage du niveau de charge.
+
+### 🕐 Module RTC DS1307 (rtc_clock.h/c)
+
+**Responsabilité :** Horodatage précis des mesures via le DS1307 du shield SD/RTC
+
+```c
+// API RTC
+esp_err_t init_rtc(void);                              // Init I2C + vérif oscillateur
+esp_err_t rtc_get_time(rtc_time_t *time);              // Lire date/heure
+esp_err_t rtc_set_time(const rtc_time_t *time);        // Programmer date/heure
+esp_err_t rtc_set_time_from_compile(void);             // Auto-programmation
+void rtc_format_datetime(const rtc_time_t *time, char *buf, size_t len);
+esp_err_t deinit_rtc(void);
+```
+
+**Fonctionnalités :**
+- Communication I2C avec le DS1307 (adresse 0x68, SDA=GPIO8, SCL=GPIO10)
+- Lecture/écriture des 7 registres temps en une seule transaction I2C
+- Conversion BCD ↔ décimal automatique
+- Calcul automatique du jour de la semaine (algorithme de Sakamoto)
+- Détection oscillateur arrêté (bit CH) pour savoir si l'heure est valide
+
+**⏰ Mise à l'heure automatique :**
+
+Le DS1307 est maintenu par une **pile CR2032** sur le shield, mais il doit être programmé au moins une fois. Le firmware utilise une stratégie **auto-détection** :
+
+1. Au boot, il lit l'heure du DS1307
+2. Si l'année est **< 2024** (RTC vierge ou pile changée) → il programme automatiquement la **date/heure de compilation** (`__DATE__` / `__TIME__`)
+3. Si l'année est **≥ 2024** → il ne touche à rien (la pile a maintenu l'heure)
+
+```c
+// Logique dans app_main()
+rtc_time_t now;
+rtc_get_time(&now);
+if (now.year < 2024) {
+    rtc_set_time_from_compile();  // Auto-programmation
+    rtc_get_time(&now);           // Relire
+}
+// Affiche: 🕐 RTC: 2026-02-06 14:30:05
+```
+
+> 💡 **Précision :** Décalage de ~10-30s max (temps de flash après compilation). La pile CR2032 maintient ensuite l'heure indéfiniment. Plus tard, le BLE permettra une synchronisation à la seconde près depuis l'appli Angular.
+
+**📚 Bus I2C partagé :** Le bus I2C (SDA=GPIO8, SCL=GPIO10) sera partagé avec le capteur SHT45 (adresse 0x44) quand celui-ci sera intégré.
+
 ### ⚙️ Configuration globale (config.h)
 
 **Responsabilité :** Centralisation de tous les paramètres
@@ -536,7 +612,11 @@ esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime,
 // Paramètres système
 #define DEEP_SLEEP_DURATION_SEC 5
 #define BUFFER_FLUSH_THRESHOLD 500
-#define WAKEUP_BUTTON_PIN GPIO_NUM_0
+#define WAKEUP_BUTTON_PIN GPIO_NUM_2
+
+// Bus I2C (RTC DS1307 + SHT45)
+#define I2C_SDA_PIN  8   // D2 → GPIO8
+#define I2C_SCL_PIN  10  // D1 → GPIO10
 ```
 
 **Avantages :**
@@ -548,9 +628,9 @@ esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime,
 
 ```cmake
 idf_component_register(
-    SRCS "main.c" "led_rgb.c" "sd_card.c"  # Tous les sources
+    SRCS "main.c" "led_rgb.c" "sd_card.c" "battery.c" "rtc_clock.c"
     INCLUDE_DIRS "."                        # Headers locaux
-    REQUIRES driver esp_timer fatfs...      # Dépendances ESP-IDF
+    REQUIRES driver esp_timer fatfs sdmmc spiffs esp_adc
 )
 ```
 

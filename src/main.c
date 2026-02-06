@@ -19,6 +19,8 @@
 #include <driver/rtc_io.h>
 #include "led_rgb.h"
 #include "sd_card.h"
+#include "battery.h"
+#include "rtc_clock.h"
 
 // !! Très important !! Contien les définitions de configuration
 // C'est a dire les variables et constantes globales utilisées dans tout le projet
@@ -358,6 +360,49 @@ void app_main(void)
         LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser le bouton de réveil");
     }
     
+    // Initialiser et lire la tension batterie
+    ret = init_battery();
+    if (ret == ESP_OK) {
+        battery_info_t bat;
+        if (read_battery(&bat) == ESP_OK) {
+            LOG_ESSENTIAL(TAG, "🔋 Batterie: %.2fV (%d%%)", bat.voltage, bat.percentage);
+        } else {
+            LOG_ESSENTIAL(TAG, "⚠️  Lecture batterie échouée");
+        }
+        deinit_battery();
+    } else {
+        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser l'ADC batterie");
+    }
+    
+    // Initialiser et lire l'horloge RTC DS1307
+    char datetime_str[32] = {0};  // Horodatage réel pour les mesures
+    ret = init_rtc();
+    if (ret == ESP_OK) {
+        rtc_time_t now;
+        if (rtc_get_time(&now) == ESP_OK) {
+            // Si l'année est invalide, programmer depuis la date de compilation
+            if (now.year < 2024) {
+                LOG_ESSENTIAL(TAG, "⚠️  RTC non configurée, programmation auto...");
+                rtc_set_time_from_compile();
+                rtc_get_time(&now);  // Relire après programmation
+            }
+            rtc_format_datetime(&now, datetime_str, sizeof(datetime_str));
+            LOG_ESSENTIAL(TAG, "🕐 RTC: %s", datetime_str);
+        } else {
+            LOG_ESSENTIAL(TAG, "⚠️  Lecture RTC échouée");
+        }
+        deinit_rtc();
+    } else {
+        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la RTC DS1307");
+    }
+    
+    // Fallback: si RTC indisponible, utiliser le temps depuis le boot
+    if (datetime_str[0] == '\0') {
+        int64_t timestamp = esp_timer_get_time() / 1000000;
+        snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
+        LOG_DEBUG(TAG, "⚠️  Horodatage de secours (uptime): %s", datetime_str);
+    }
+    
     // Vérifier si on a été réveillé par le bouton (mode transfert BLE)
     if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
         handle_transfer_mode();
@@ -393,10 +438,7 @@ void app_main(void)
     
     LOG_DEBUG(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
     
-    // Générer un timestamp
-    char datetime_str[32];
-    int64_t timestamp = esp_timer_get_time() / 1000000;
-    snprintf(datetime_str, sizeof(datetime_str), "%lld", (long long)timestamp);
+    // L'horodatage RTC (datetime_str) a été lu plus haut lors de l'init RTC
     
     // Ajouter la mesure au tampon flash (mode économie d'énergie) avec ID unique
     esp_err_t buffer_result = add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
