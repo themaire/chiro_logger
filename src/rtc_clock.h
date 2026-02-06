@@ -4,6 +4,7 @@
 #include <esp_err.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <driver/i2c_master.h>
 
 /**
  * @file rtc_clock.h
@@ -80,6 +81,16 @@ esp_err_t rtc_set_time_from_compile(void);
  * @param[in] buf_len Taille du buffer
  */
 void rtc_format_datetime(const rtc_time_t *time, char *buf, size_t buf_len);
+
+/**
+ * @brief Retourne le handle du bus I2C maître
+ * 
+ * Permet aux autres modules (SHT45, etc.) de partager le bus I2C
+ * initialisé par init_rtc(). Retourne NULL si le bus n'est pas initialisé.
+ * 
+ * @return Handle du bus I2C ou NULL
+ */
+i2c_master_bus_handle_t rtc_get_i2c_bus(void);
 
 /**
  * @brief Libère les ressources I2C

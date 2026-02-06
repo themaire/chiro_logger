@@ -21,6 +21,7 @@
 #include "sd_card.h"
 #include "battery.h"
 #include "rtc_clock.h"
+#include "sht45.h"
 
 // !! Très important !! Contien les définitions de configuration
 // C'est a dire les variables et constantes globales utilisées dans tout le projet
@@ -186,6 +187,74 @@ int count_buffer_lines(void)
     return lines > 1 ? lines - 1 : 0;
 }
 
+// Fonction pour trouver le plus grand ID dans un fichier CSV
+// Le CSV doit avoir l'ID en première colonne (format: ID,DateTime,...)
+int get_max_id_from_csv(const char *filepath)
+{
+    FILE *file = fopen(filepath, "r");
+    if (file == NULL) {
+        return 0;
+    }
+    
+    int max_id = 0;
+    char line[256];
+    bool first_line = true;
+    
+    while (fgets(line, sizeof(line), file)) {
+        if (first_line) {
+            first_line = false;
+            continue; // Ignorer l'en-tête
+        }
+        
+        int id = 0;
+        if (sscanf(line, "%d,", &id) == 1) {
+            if (id > max_id) {
+                max_id = id;
+            }
+        }
+    }
+    
+    fclose(file);
+    return max_id;
+}
+
+// Fonction pour restaurer cycle_counter depuis les données existantes
+// Appelée uniquement au démarrage frais (perte d'alimentation)
+// Vérifie le tampon SPIFFS puis la carte SD pour trouver le dernier ID
+void restore_cycle_counter_from_storage(void)
+{
+    LOG_ESSENTIAL(TAG, "🔍 Recherche du dernier ID dans les données existantes...");
+    
+    int max_id = 0;
+    
+    // 1. Vérifier le tampon SPIFFS (déjà monté à ce stade)
+    int buffer_max = get_max_id_from_csv(BUFFER_CSV_FILE);
+    if (buffer_max > max_id) {
+        max_id = buffer_max;
+        LOG_DEBUG(TAG, "📊 Max ID dans tampon flash: %d", buffer_max);
+    }
+    
+    // 2. Vérifier la carte SD
+    esp_err_t ret = init_sd_card();
+    if (ret == ESP_OK) {
+        int sd_max = get_max_id_from_csv("/sdcard/CHIRO/data.csv");
+        if (sd_max > max_id) {
+            max_id = sd_max;
+            LOG_DEBUG(TAG, "📊 Max ID sur carte SD: %d", sd_max);
+        }
+        unmount_sd_card();
+    } else {
+        LOG_DEBUG(TAG, "⚠️  SD non accessible pour restauration ID");
+    }
+    
+    if (max_id > 0) {
+        cycle_counter = max_id;
+        LOG_ESSENTIAL(TAG, "✅ Compteur restauré: %d (reprend à %d)", max_id, max_id + 1);
+    } else {
+        LOG_ESSENTIAL(TAG, "ℹ️  Aucune donnée existante, démarrage à ID 1");
+    }
+}
+
 // Fonction pour transférer le tampon flash vers la carte SD
 // sert à libérer de l'espace dans le tampon
 esp_err_t flush_buffer_to_sd(void)
@@ -209,6 +278,13 @@ esp_err_t flush_buffer_to_sd(void)
         ESP_LOGE(TAG, "❌ Impossible d'initialiser la SD pour le flush");
         fclose(buffer_file);
         return ret;
+    }
+    
+    // Créer le répertoire CHIRO s'il n'existe pas (FAT32 ne le fait pas auto)
+    struct stat st;
+    if (stat("/sdcard/CHIRO", &st) != 0) {
+        mkdir("/sdcard/CHIRO", 0775);
+        ESP_LOGI(TAG, "📁 Répertoire /sdcard/CHIRO créé");
     }
     
     // Ouvrir le fichier de destination sur la SD
@@ -323,6 +399,66 @@ void handle_transfer_mode(void)
     set_led_rgb(255, 165, 0, 2000, 5, 300, false);  // Orange 5 clignotements
 }
 
+#ifdef TEST_SHT45
+// ============================================================================
+// 🧪 MODE TEST SHT45 - Procédure temporaire de test sonde
+// ============================================================================
+void app_main(void)
+{
+    vTaskDelay(pdMS_TO_TICKS(2000));  // Attente connexion USB série
+    
+    ESP_LOGI(TAG, "🧪 === MODE TEST SHT45 ===");
+    ESP_LOGI(TAG, "Bus I2C: SDA=GPIO%d, SCL=GPIO%d", I2C_SDA_PIN, I2C_SCL_PIN);
+    
+    // Créer le bus I2C directement (pas besoin du RTC)
+    i2c_master_bus_config_t bus_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = I2C_NUM_0,
+        .scl_io_num = I2C_SCL_PIN,
+        .sda_io_num = I2C_SDA_PIN,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    
+    i2c_master_bus_handle_t bus_handle = NULL;
+    esp_err_t ret = i2c_new_master_bus(&bus_config, &bus_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "❌ Impossible de créer le bus I2C (%s)", esp_err_to_name(ret));
+        return;
+    }
+    ESP_LOGI(TAG, "✅ Bus I2C initialisé");
+    
+    // Initialiser le SHT45
+    ret = init_sht45(bus_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "❌ Impossible d'initialiser le SHT45 (%s)", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Vérifier le câblage: SDA→GPIO%d, SCL→GPIO%d, VCC→3.3V, GND→GND", I2C_SDA_PIN, I2C_SCL_PIN);
+        i2c_del_master_bus(bus_handle);
+        return;
+    }
+    
+    ESP_LOGI(TAG, "✅ SHT45 détecté - Début des lectures (toutes les 2s)\n");
+    ESP_LOGI(TAG, "  #  |  Température  |  Humidité");
+    ESP_LOGI(TAG, "-----|--------------|----------");
+    
+    int count = 0;
+    while (1) {
+        sht45_data_t data;
+        ret = read_sht45(&data);
+        if (ret == ESP_OK) {
+            count++;
+            ESP_LOGI(TAG, "%3d  |   %6.2f °C   |  %5.2f %%", count, data.temperature, data.humidity);
+        } else {
+            ESP_LOGE(TAG, "  ❌  Erreur lecture SHT45 (%s)", esp_err_to_name(ret));
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+#else
+// ============================================================================
+// 🦇 MODE NORMAL - Datalogger chiroptères
+// ============================================================================
 void app_main(void)
 {
     // 🔌 DÉLAI USB SÉRIE - ESP32-C3 a besoin de temps pour établir la connexion USB
@@ -376,6 +512,8 @@ void app_main(void)
     
     // Initialiser et lire l'horloge RTC DS1307
     char datetime_str[32] = {0};  // Horodatage réel pour les mesures
+    bool sht45_ok = false;
+    sht45_data_t sensor_data = { .temperature = -999.0f, .humidity = -999.0f };
     ret = init_rtc();
     if (ret == ESP_OK) {
         rtc_time_t now;
@@ -391,6 +529,26 @@ void app_main(void)
         } else {
             LOG_ESSENTIAL(TAG, "⚠️  Lecture RTC échouée");
         }
+        
+        // Initialiser et lire le capteur SHT45 (partage le bus I2C avec le DS1307)
+        i2c_master_bus_handle_t i2c_bus = rtc_get_i2c_bus();
+        if (i2c_bus != NULL) {
+            ret = init_sht45(i2c_bus);
+            if (ret == ESP_OK) {
+                if (read_sht45(&sensor_data) == ESP_OK) {
+                    sht45_ok = true;
+                    LOG_ESSENTIAL(TAG, "🌡️  SHT45: %.2f°C, %.2f%%", sensor_data.temperature, sensor_data.humidity);
+                } else {
+                    LOG_ESSENTIAL(TAG, "⚠️  Lecture SHT45 échouée");
+                }
+                deinit_sht45();
+            } else {
+                LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser le SHT45");
+            }
+        } else {
+            LOG_ESSENTIAL(TAG, "⚠️  Bus I2C indisponible pour le SHT45");
+        }
+        
         deinit_rtc();
     } else {
         LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la RTC DS1307");
@@ -425,6 +583,12 @@ void app_main(void)
         LOG_DEBUG(TAG, "✅ Tampon flash initialisé");
     }
     
+    // Si c'est un démarrage frais (perte d'alimentation), restaurer le compteur
+    // depuis les données existantes (tampon SPIFFS + carte SD)
+    if (cycle_counter == 0) {
+        restore_cycle_counter_from_storage();
+    }
+    
     // Boucle principale - effectuer UNE mesure puis dormir
     cycle_counter++; // Incrémenter le compteur à chaque réveil (persiste grâce à RTC_DATA_ATTR)
     
@@ -432,9 +596,17 @@ void app_main(void)
     
     // Signal LED de début de cycle (déjà fait au démarrage en bleu)
     
-    // Effectuer une mesure
-    float temp = 18.5 + (cycle_counter * 0.1);
-    float humidity = 85.0 + (cycle_counter * 0.2);
+    // Effectuer une mesure (réelle si SHT45 disponible, simulée sinon)
+    float temp, humidity;
+    if (sht45_ok) {
+        temp = sensor_data.temperature;
+        humidity = sensor_data.humidity;
+    } else {
+        // Fallback : valeurs simulées si capteur indisponible
+        temp = 18.5 + (cycle_counter * 0.1);
+        humidity = 85.0 + (cycle_counter * 0.2);
+        LOG_ESSENTIAL(TAG, "⚠️  Mesure simulée (SHT45 indisponible)");
+    }
     
     LOG_DEBUG(TAG, "🌡️  Mesure: T=%.1f°C, H=%.1f%%", temp, humidity);
     
@@ -474,6 +646,11 @@ void app_main(void)
         // Mode dégradé: écriture directe sur SD
         esp_err_t sd_result = init_sd_card();
         if (sd_result == ESP_OK) {
+            // Créer le répertoire CHIRO s'il n'existe pas
+            struct stat st2;
+            if (stat("/sdcard/CHIRO", &st2) != 0) {
+                mkdir("/sdcard/CHIRO", 0775);
+            }
             esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
                                                    cycle_counter, datetime_str, temp, humidity);
             if (csv_result == ESP_OK) {
@@ -511,3 +688,4 @@ void app_main(void)
     
     // Cette ligne ne sera jamais exécutée car l'ESP32 redémarre après le deep sleep
 }
+#endif // TEST_SHT45

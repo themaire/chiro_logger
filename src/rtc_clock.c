@@ -217,6 +217,11 @@ void rtc_format_datetime(const rtc_time_t *time, char *buf, size_t buf_len)
              time->hours, time->minutes, time->seconds);
 }
 
+i2c_master_bus_handle_t rtc_get_i2c_bus(void)
+{
+    return s_bus_handle;
+}
+
 esp_err_t deinit_rtc(void)
 {
     if (s_dev_handle != NULL) {
