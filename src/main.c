@@ -594,6 +594,7 @@ void app_main(void)
         
         // Après le mode transfert, retourner en deep sleep immédiatement
         LOG_ESSENTIAL(TAG, "💤 Retour en deep sleep après mode transfert...");
+        deinit_led_rgb();  // Désactiver complètement la LED avant deep sleep
         esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL);
         esp_deep_sleep_start();
     }
@@ -700,7 +701,7 @@ void app_main(void)
     
     // Signal LED avant deep sleep - Bleu fade out
     set_led_rgb(0, 0, 50, 500, 1, 0, false);  // Bleu dim 1 flash
-    led_off();  // Éteindre explicitement
+    deinit_led_rgb();  // Désactiver complètement la LED + GPIO bas (sinon elle reste allumée en deep sleep)
     
     // Configurer le réveil par timer
     esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
