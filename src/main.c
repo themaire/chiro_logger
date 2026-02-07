@@ -113,7 +113,7 @@ esp_err_t init_flash_buffer(void)
 }
 
 // Fonction pour ajouter une mesure dans le tampon flash avec ID unique
-esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, float humidity)
+esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, float humidity, int battery_pct, float battery_volt)
 {
     LOG_DEBUG(TAG, "🔋 Ajout mesure au tampon flash...");
     
@@ -134,7 +134,7 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
     // Si le fichier n'existait pas, écrire l'en-tête
     if (!file_exists) {
         LOG_DEBUG(TAG, "📄 Création du tampon CSV avec en-tête");
-        fprintf(file, "ID,DateTime,Temperature_C,Humidity_%%\n");
+        fprintf(file, "ID,DateTime,Temperature_C,Humidity_%%,Battery_%%,Battery_V\n");
     }
     
     // Écrire les données avec ID unique en première colonne
@@ -154,9 +154,21 @@ esp_err_t add_to_flash_buffer(int id, const char* datetime, float temperature, f
     }
     
     if (humidity == -999.0f) {
+        fprintf(file, "N/A,");
+    } else {
+        fprintf(file, "%.2f,", humidity);
+    }
+    
+    if (battery_pct < 0) {
+        fprintf(file, "N/A,");
+    } else {
+        fprintf(file, "%d,", battery_pct);
+    }
+    
+    if (battery_volt < 0.0f) {
         fprintf(file, "N/A\n");
     } else {
-        fprintf(file, "%.2f\n", humidity);
+        fprintf(file, "%.2f\n", battery_volt);
     }
     
     fclose(file);
@@ -508,10 +520,14 @@ void app_main(void)
     }
     
     // Initialiser et lire la tension batterie
+    int battery_pct = -1;      // -1 = lecture indisponible
+    float battery_volt = -1.0f; // -1.0 = lecture indisponible
     ret = init_battery();
     if (ret == ESP_OK) {
         battery_info_t bat;
         if (read_battery(&bat) == ESP_OK) {
+            battery_pct = bat.percentage;
+            battery_volt = bat.voltage;
             LOG_ESSENTIAL(TAG, "🔋 Batterie: %.2fV (%d%%)", bat.voltage, bat.percentage);
         } else {
             LOG_ESSENTIAL(TAG, "⚠️  Lecture batterie échouée");
@@ -624,7 +640,7 @@ void app_main(void)
     // L'horodatage RTC (datetime_str) a été lu plus haut lors de l'init RTC
     
     // Ajouter la mesure au tampon flash (mode économie d'énergie) avec ID unique
-    esp_err_t buffer_result = add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
+    esp_err_t buffer_result = add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity, battery_pct, battery_volt);
     if (buffer_result == ESP_OK) {
         LOG_DEBUG(TAG, "🔋 Mesure stockée dans le tampon flash");
         
@@ -662,7 +678,7 @@ void app_main(void)
                 mkdir("/sdcard/CHIRO", 0775);
             }
             esp_err_t csv_result = log_data_to_csv("/sdcard/CHIRO/data.csv", 
-                                                   cycle_counter, datetime_str, temp, humidity);
+                                                   cycle_counter, datetime_str, temp, humidity, battery_pct, battery_volt);
             if (csv_result == ESP_OK) {
                 LOG_ESSENTIAL(TAG, "💾 Données sauvegardées directement sur SD");
                 // Signal LED : mode dégradé OK - Vert lent

@@ -7,6 +7,56 @@
 > 💡 **Qu'est-ce qu'une PWA ?**  
 > Une Progressive Web App (PWA) est une application web qui fonctionne comme une app mobile native. Elle peut être installée sur smartphone, fonctionne hors-ligne, accède aux APIs natives (Bluetooth, géolocalisation...) et offre une expérience utilisateur fluide. Pas besoin de passer par les stores d'applications !
 
+---
+
+## 📑 Sommaire
+
+- [🦇 Projet de Datalogger Température \& Humidité pour Cavités à Chiroptères](#-projet-de-datalogger-température--humidité-pour-cavités-à-chiroptères)
+  - [📑 Sommaire](#-sommaire)
+  - [🎯 Objectif](#-objectif)
+  - [🧪 Contexte scientifique](#-contexte-scientifique)
+  - [⚙️ Spécifications techniques du dispositif](#️-spécifications-techniques-du-dispositif)
+    - [Matériel principal](#matériel-principal)
+    - [Matériel principal](#matériel-principal-1)
+    - [Fonctionnement logiciel](#fonctionnement-logiciel)
+      - [🔁 Mode normal (acquisition)](#-mode-normal-acquisition)
+      - [🔋 Deep Sleep - Optimisation énergétique](#-deep-sleep---optimisation-énergétique)
+  - [🗂️ Système SPIFFS - Tampon flash intelligent](#️-système-spiffs---tampon-flash-intelligent)
+    - [📍 Principe technique](#-principe-technique)
+    - [💾 Layout flash ESP32-C3](#-layout-flash-esp32-c3)
+    - [🎯 Utilisation dans Chiro Logger](#-utilisation-dans-chiro-logger)
+    - [✨ Avantages pour l'autonomie](#-avantages-pour-lautonomie)
+  - [💡 Innovation RTC : Compteur persistant entre deep sleeps](#-innovation-rtc--compteur-persistant-entre-deep-sleeps)
+    - [🧠 RTC Memory de l'ESP32 - Fonctionnement](#-rtc-memory-de-lesp32---fonctionnement)
+    - [🔧 Implémentation technique](#-implémentation-technique)
+    - [🎯 Gestion intelligente des resets](#-gestion-intelligente-des-resets)
+  - [🏗️ Architecture modulaire du code](#️-architecture-modulaire-du-code)
+    - [📁 Structure des modules](#-structure-des-modules)
+    - [🎨 Module LED RGB (led\_rgb.h/c)](#-module-led-rgb-led_rgbhc)
+    - [💾 Module SD Card (sd\_card.h/c)](#-module-sd-card-sd_cardhc)
+    - [🔋 Module Batterie (battery.h/c)](#-module-batterie-batteryhc)
+    - [🕐 Module RTC DS1307 (rtc\_clock.h/c)](#-module-rtc-ds1307-rtc_clockhc)
+    - [🌡️ Module Capteur SHT45 (sht45.h/c)](#️-module-capteur-sht45-sht45hc)
+    - [⚙️ Configuration globale (config.h)](#️-configuration-globale-configh)
+    - [🔧 Intégration dans CMakeLists.txt](#-intégration-dans-cmakeliststxt)
+    - [✨ Bénéfices de la refactorisation](#-bénéfices-de-la-refactorisation)
+  - [�️ Configuration de l'environnement de développement](#️-configuration-de-lenvironnement-de-développement)
+    - [📋 Prérequis](#-prérequis)
+    - [🚀 Étapes d'installation](#-étapes-dinstallation)
+      - [1. Cloner le projet](#1-cloner-le-projet)
+      - [2. Vérifier le fichier `platformio.ini`](#2-vérifier-le-fichier-platformioini)
+      - [3. Nettoyer les configurations précédentes](#3-nettoyer-les-configurations-précédentes)
+      - [4. Installer les dépendances et compiler](#4-installer-les-dépendances-et-compiler)
+      - [5. Configurer l'IDE VS Code](#5-configurer-lide-vs-code)
+      - [6. Flasher sur la carte](#6-flasher-sur-la-carte)
+    - [🔧 Commandes utiles](#-commandes-utiles)
+    - [🐛 Dépannage](#-dépannage)
+    - [📦 Structure du projet](#-structure-du-projet)
+  - [�📡 Mode transfert Bluetooth BLE](#-mode-transfert-bluetooth-ble)
+    - [🔄 Récupération des données sans contact](#-récupération-des-données-sans-contact)
+
+---
+
 ## 🎯 Objectif
 
 Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température** et l’**humidité** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
@@ -125,7 +175,7 @@ Flash ESP32-C3 (4MB total) :
 ```c
 // Écriture dans la flash interne (ultra-rapide)
 FILE *buffer_file = fopen("/buffer/data_buffer.csv", "a");
-fprintf(buffer_file, "%d,%.2f,%.2f\n", id, temp, hum);
+fprintf(buffer_file, "%d,%.2f,%.2f,%d,%.2f\n", id, temp, hum, bat_pct, bat_v);
 fclose(buffer_file);
 ```
 
@@ -263,7 +313,7 @@ cycle_counter++;  // Le compteur continue de compter !
 ESP_LOGI(TAG, "📊 Cycle de mesure #%d", cycle_counter);
 
 // L'ID est utilisé comme première colonne du CSV
-add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
+add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity, battery_pct, battery_volt);
 ```
 
 ### 🎯 Gestion intelligente des resets
@@ -298,12 +348,12 @@ esp_err_t init_cycle_counter_from_sd(void) {
 Le fichier CSV généré contient maintenant un **ID unique croissant** pour chaque mesure :
 
 ```csv
-ID,DateTime,Temperature_C,Humidity_%
-1,1672531200,18.5,85.0
-2,1672531205,18.6,85.2
-3,1672531210,18.7,85.4
+ID,DateTime,Temperature_C,Humidity_%,Battery_%,Battery_V
+1,2026-02-07 08:00:00,18.50,85.0,95,4.12
+2,2026-02-07 08:30:00,18.60,85.2,95,4.11
+3,2026-02-07 09:00:00,18.70,85.4,94,4.10
 ...
-1247,1672535435,19.2,86.1
+1247,2026-03-15 14:30:00,19.20,86.1,58,3.78
 ```
 
 **✨ Avantages uniques :**
@@ -513,7 +563,7 @@ esp_err_t init_sd_card(void);
 esp_err_t test_sd_card(void);
 esp_err_t unmount_sd_card(void);
 esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, 
-                          float temperature, float humidity);
+                          float temperature, float humidity, int battery_pct, float battery_volt);
 ```
 
 **Fonctionnalités :**
@@ -542,19 +592,87 @@ esp_err_t deinit_battery(void);
 - **Calibration automatique** via curve fitting (ESP32-C3)
 - Moyennage sur 16 lectures pour stabilité
 - Prise en compte du **diviseur de tension ×2** (100K/100K du LOLIN C3 Mini)
-- Conversion en pourcentage : 4.2V = 100%, 3.0V = 0% (courbe LiPo)
+- Conversion en pourcentage : **4.15V = 100%**, 3.0V = 0% (seuil calibré sur batterie LiPo 3000mAh neuve)
 - Libération immédiate de l'ADC après lecture (économie deep sleep)
 
 **📊 Utilisation dans app_main :**
 ```c
 battery_info_t bat;
+int battery_pct = -1;       // -1 = lecture indisponible
+float battery_volt = -1.0f; // -1.0 = lecture indisponible
+
 init_battery();
-read_battery(&bat);
-ESP_LOGI(TAG, "🔋 Batterie: %.2fV (%d%%)", bat.voltage, bat.percentage);
+if (read_battery(&bat) == ESP_OK) {
+    battery_pct = bat.percentage;
+    battery_volt = bat.voltage;
+}
 deinit_battery();
 ```
 
-> 💡 **À terme :** La valeur batterie sera transmise via BLE à l'appli Angular pour affichage du niveau de charge.
+**📈 Données batterie dans le CSV :**
+
+Chaque mesure enregistrée inclut **deux colonnes batterie** :
+
+| Colonne | Type | Valeur N/A | Description |
+|---------|------|------------|-------------|
+| `Battery_%` | int | `N/A` | Pourcentage estimé (approximation linéaire 4.15V→3.0V) |
+| `Battery_V` | float | `N/A` | Tension brute mesurée en Volts |
+
+```csv
+ID,DateTime,Temperature_C,Humidity_%,Battery_%,Battery_V
+1,2026-02-07 14:30:00,19.85,52.30,78,3.92
+2,2026-02-07 15:00:00,19.72,53.10,77,3.90
+...
+500,2026-02-18 10:30:00,18.40,86.20,42,3.68
+```
+
+**🔬 Pourquoi stocker les deux valeurs ?**
+
+Le pourcentage est une **estimation calculée** à partir d'une courbe de décharge théorique. La tension brute est la **donnée physique réelle**. Stocker les deux permet :
+
+- **📉 Tracer la courbe de décharge réelle** de la batterie dans les conditions terrain (température de la cavité, cycles deep sleep)
+- **🔍 Détecter le vieillissement** : une batterie usée présente une tension nominale plus basse à pourcentage équivalent
+- **🔧 Recalibrer la conversion V→%** : les données réelles permettent d'affiner la courbe de conversion pour les futures missions
+- **🌡️ Corréler température et autonomie** : le froid des cavités (~10-15°C) affecte la capacité des LiPo, les données CSV permettront de quantifier cet impact
+
+**⚠️ Approximation linéaire actuelle :**
+
+La conversion V→% utilise actuellement une **interpolation linéaire** entre 4.15V (100%) et 3.0V (0%). Or une batterie LiPo se décharge selon une **courbe en S** caractéristique :
+
+```
+Tension (V)
+4.15 ┤▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░  ← Chute rapide initiale
+3.90 ┤             ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░
+3.80 ┤                        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  ← Long plateau ~3.7V
+3.70 ┤                                         ▓▓
+3.50 ┤                                          ▓  ← Chute brutale
+3.00 ┤                                          ▓  ← Coupure
+     └──────────────────────────────────────────────
+     100%                                      0%
+```
+
+Conséquence avec la courbe linéaire : le **% affiché chute trop vite au début** (4.15→3.8V) et **trop lentement au milieu** (long plateau ~3.7V). C'est acceptable pour le moment, car la tension brute (`Battery_V`) est stockée dans le CSV pour une analyse post-traitement précise.
+
+**📋 TODO — Courbe de décharge réelle :**
+
+> 🔬 **Objectif :** Après une première **décharge complète sur le terrain** (batterie LiPo 3000mAh, deep sleep cyclique), analyser les colonnes `Battery_V` et `Battery_%` du CSV pour :
+>
+> 1. **Tracer la courbe V = f(temps)** réelle en conditions d'utilisation (température cavité, cycles deep sleep)
+> 2. **Identifier les seuils clés** : début du plateau, fin du plateau, tension de coupure effective
+> 3. **Remplacer l'interpolation linéaire** par une courbe multi-segments ou polynomiale calibrée sur les données réelles :
+>    ```c
+>    // Exemple futur : conversion LiPo multi-segments
+>    if (voltage >= 4.00f) percentage = map(voltage, 4.00, 4.15, 90, 100);
+>    else if (voltage >= 3.75f) percentage = map(voltage, 3.75, 4.00, 40, 90);  // plateau
+>    else if (voltage >= 3.50f) percentage = map(voltage, 3.50, 3.75, 10, 40);
+>    else percentage = map(voltage, 3.00, 3.50, 0, 10);  // chute finale
+>    ```
+> 4. **Corréler avec la température** : évaluer l'impact du froid sur la capacité effective
+> 5. **Valider sur plusieurs cycles** : comparer les courbes de décharge successives pour détecter le vieillissement
+>
+> **Données nécessaires :** Un CSV complet d'une décharge 100%→0% en conditions réelles (intervalle 30min, batterie 3000mAh).
+
+> 💡 **À terme :** Les valeurs batterie seront transmises via BLE à l'appli Angular pour affichage du niveau de charge et analyse statistique de l'usure.
 
 ### 🕐 Module RTC DS1307 (rtc_clock.h/c)
 

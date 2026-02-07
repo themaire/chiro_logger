@@ -35,7 +35,7 @@
 // ============================================================================
 // ⏰ CONFIGURATION DEEP SLEEP
 // ============================================================================
-#define DEEP_SLEEP_DURATION_SEC 5  // Durée entre mesures (secondes)
+#define DEEP_SLEEP_DURATION_SEC 10  // Durée entre mesures (secondes)
 
 // ============================================================================
 // 💾 CONFIGURATION TAMPON FLASH
@@ -63,7 +63,7 @@
 // Offsets ajoutés aux valeurs brutes du capteur pour compenser les écarts
 // Valeur finale = valeur lue + offset
 // Exemple : si la sonde lit 21.75°C et le thermomètre de référence 19.8°C → offset = -1.95
-#define SHT45_TEMP_OFFSET     -1.7f  // Correction température en °C
+#define SHT45_TEMP_OFFSET     -0.5f  // Correction température en °C
 #define SHT45_HUMIDITY_OFFSET  0.0f   // Correction humidité en %RH
 
 #endif // CONFIG_H

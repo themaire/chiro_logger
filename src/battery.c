@@ -16,8 +16,9 @@ static const char *TAG = "BATTERY";
 // Nombre de lectures pour moyenner (stabilité)
 #define ADC_SAMPLES 16
 
-// Seuils LiPo typiques (une cellule 3.7V nominale)
-#define BATTERY_FULL_V    4.2f   // 100%
+// Seuils LiPo calibrés (batterie LiPo 3000mAh, chargeur intégré LOLIN C3 PICO)
+// Tension max mesurée à pleine charge via ADC : 4.15V
+#define BATTERY_FULL_V    4.15f  // 100%
 #define BATTERY_EMPTY_V   3.0f   // 0%
 
 // Handles ADC

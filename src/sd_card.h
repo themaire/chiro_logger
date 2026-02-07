@@ -49,12 +49,14 @@ esp_err_t unmount_sd_card(void);
  * @param datetime Timestamp de la mesure (NULL = génère timestamp automatique)
  * @param temperature Température en °C (-999.0 = N/A)
  * @param humidity Humidité en % (-999.0 = N/A)
+ * @param battery_pct Niveau batterie en % (-1 = N/A)
+ * @param battery_volt Tension batterie en V (-1.0 = N/A)
  * 
  * @return ESP_OK en cas de succès, ESP_FAIL sinon
  * 
  * Note: Crée automatiquement l'en-tête CSV si le fichier n'existe pas
  */
 esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, 
-                          float temperature, float humidity);
+                          float temperature, float humidity, int battery_pct, float battery_volt);
 
 #endif // SD_CARD_H
