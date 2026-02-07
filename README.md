@@ -7,9 +7,59 @@
 > 💡 **Qu'est-ce qu'une PWA ?**  
 > Une Progressive Web App (PWA) est une application web qui fonctionne comme une app mobile native. Elle peut être installée sur smartphone, fonctionne hors-ligne, accède aux APIs natives (Bluetooth, géolocalisation...) et offre une expérience utilisateur fluide. Pas besoin de passer par les stores d'applications !
 
+---
+
+## 📑 Sommaire
+
+- [🦇 Projet de Datalogger Température \& Humidité pour Cavités à Chiroptères](#-projet-de-datalogger-température--humidité-pour-cavités-à-chiroptères)
+  - [📑 Sommaire](#-sommaire)
+  - [🎯 Objectif](#-objectif)
+  - [🧪 Contexte scientifique](#-contexte-scientifique)
+  - [⚙️ Spécifications techniques du dispositif](#️-spécifications-techniques-du-dispositif)
+    - [Matériel principal](#matériel-principal)
+    - [Matériel principal](#matériel-principal-1)
+    - [Fonctionnement logiciel](#fonctionnement-logiciel)
+      - [🔁 Mode normal (acquisition)](#-mode-normal-acquisition)
+      - [🔋 Deep Sleep - Optimisation énergétique](#-deep-sleep---optimisation-énergétique)
+  - [🗂️ Système SPIFFS - Tampon flash intelligent](#️-système-spiffs---tampon-flash-intelligent)
+    - [📍 Principe technique](#-principe-technique)
+    - [💾 Layout flash ESP32-C3](#-layout-flash-esp32-c3)
+    - [🎯 Utilisation dans Chiro Logger](#-utilisation-dans-chiro-logger)
+    - [✨ Avantages pour l'autonomie](#-avantages-pour-lautonomie)
+  - [💡 Innovation RTC : Compteur persistant entre deep sleeps](#-innovation-rtc--compteur-persistant-entre-deep-sleeps)
+    - [🧠 RTC Memory de l'ESP32 - Fonctionnement](#-rtc-memory-de-lesp32---fonctionnement)
+    - [🔧 Implémentation technique](#-implémentation-technique)
+    - [🎯 Gestion intelligente des resets](#-gestion-intelligente-des-resets)
+  - [🏗️ Architecture modulaire du code](#️-architecture-modulaire-du-code)
+    - [📁 Structure des modules](#-structure-des-modules)
+    - [🎨 Module LED RGB (led\_rgb.h/c)](#-module-led-rgb-led_rgbhc)
+    - [💾 Module SD Card (sd\_card.h/c)](#-module-sd-card-sd_cardhc)
+    - [🔋 Module Batterie (battery.h/c)](#-module-batterie-batteryhc)
+    - [🕐 Module RTC DS1307 (rtc\_clock.h/c)](#-module-rtc-ds1307-rtc_clockhc)
+    - [🌡️ Module Capteur SHT45 (sht45.h/c)](#️-module-capteur-sht45-sht45hc)
+    - [⚙️ Configuration globale (config.h)](#️-configuration-globale-configh)
+    - [🔧 Intégration dans CMakeLists.txt](#-intégration-dans-cmakeliststxt)
+    - [✨ Bénéfices de la refactorisation](#-bénéfices-de-la-refactorisation)
+  - [�️ Configuration de l'environnement de développement](#️-configuration-de-lenvironnement-de-développement)
+    - [📋 Prérequis](#-prérequis)
+    - [🚀 Étapes d'installation](#-étapes-dinstallation)
+      - [1. Cloner le projet](#1-cloner-le-projet)
+      - [2. Vérifier le fichier `platformio.ini`](#2-vérifier-le-fichier-platformioini)
+      - [3. Nettoyer les configurations précédentes](#3-nettoyer-les-configurations-précédentes)
+      - [4. Installer les dépendances et compiler](#4-installer-les-dépendances-et-compiler)
+      - [5. Configurer l'IDE VS Code](#5-configurer-lide-vs-code)
+      - [6. Flasher sur la carte](#6-flasher-sur-la-carte)
+    - [🔧 Commandes utiles](#-commandes-utiles)
+    - [🐛 Dépannage](#-dépannage)
+    - [📦 Structure du projet](#-structure-du-projet)
+  - [�📡 Mode transfert Bluetooth BLE](#-mode-transfert-bluetooth-ble)
+    - [🔄 Récupération des données sans contact](#-récupération-des-données-sans-contact)
+
+---
+
 ## 🎯 Objectif
 
-Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température**, de l’**humidité** et de la **pression atmosphérique** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
+Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température** et l’**humidité** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
 
 L’objectif est de récolter des données environnementales précises, sans perturber les conditions locales, afin de mieux comprendre les dynamiques microclimatiques des sites d’hivernage.
 
@@ -42,7 +92,7 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 #### 🔁 Mode normal (acquisition)
 
 - Réveil toutes les X minutes (configurable)
-- Lecture des capteurs BME280 + tension batterie
+- Lecture des capteurs SHT45 + tension batterie
 - Horodatage via RTC
 - Enregistrement sur carte SD au format CSV
 - Remise en sommeil profond (deep sleep)
@@ -125,7 +175,7 @@ Flash ESP32-C3 (4MB total) :
 ```c
 // Écriture dans la flash interne (ultra-rapide)
 FILE *buffer_file = fopen("/buffer/data_buffer.csv", "a");
-fprintf(buffer_file, "%d,%.2f,%.2f\n", id, temp, hum);
+fprintf(buffer_file, "%d,%.2f,%.2f,%d,%.2f\n", id, temp, hum, bat_pct, bat_v);
 fclose(buffer_file);
 ```
 
@@ -263,7 +313,7 @@ cycle_counter++;  // Le compteur continue de compter !
 ESP_LOGI(TAG, "📊 Cycle de mesure #%d", cycle_counter);
 
 // L'ID est utilisé comme première colonne du CSV
-add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity);
+add_to_flash_buffer(cycle_counter, datetime_str, temp, humidity, battery_pct, battery_volt);
 ```
 
 ### 🎯 Gestion intelligente des resets
@@ -298,12 +348,12 @@ esp_err_t init_cycle_counter_from_sd(void) {
 Le fichier CSV généré contient maintenant un **ID unique croissant** pour chaque mesure :
 
 ```csv
-ID,DateTime,Temperature_C,Humidity_%
-1,1672531200,18.5,85.0
-2,1672531205,18.6,85.2
-3,1672531210,18.7,85.4
+ID,DateTime,Temperature_C,Humidity_%,Battery_%,Battery_V
+1,2026-02-07 08:00:00,18.50,85.0,95,4.12
+2,2026-02-07 08:30:00,18.60,85.2,95,4.11
+3,2026-02-07 09:00:00,18.70,85.4,94,4.10
 ...
-1247,1672535435,19.2,86.1
+1247,2026-03-15 14:30:00,19.20,86.1,58,3.78
 ```
 
 **✨ Avantages uniques :**
@@ -459,11 +509,13 @@ Le firmware du Chiro Logger a été **entièrement refactorisé** pour une meill
 
 ```
 src/
-├── main.c              # Logique principale (~320 lignes)
+├── main.c              # Logique principale
 ├── config.h            # Configuration globale partagée
 ├── led_rgb.h/c         # Module LED RGB WS2812
 ├── sd_card.h/c         # Module carte microSD
-├── flash_buffer.h/c    # Module tampon flash (à implémenter)
+├── battery.h/c         # Module mesure batterie (ADC)
+├── rtc_clock.h/c       # Module horloge RTC DS1307 (I2C)
+├── sht45.h/c           # Module capteur SHT45 (température + humidité)
 └── CMakeLists.txt      # Configuration build
 ```
 
@@ -511,7 +563,7 @@ esp_err_t init_sd_card(void);
 esp_err_t test_sd_card(void);
 esp_err_t unmount_sd_card(void);
 esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, 
-                          float temperature, float humidity);
+                          float temperature, float humidity, int battery_pct, float battery_volt);
 ```
 
 **Fonctionnalités :**
@@ -524,33 +576,254 @@ esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime,
 
 **📚 Dépendances SDK utiles :** L'init s'appuie sur les headers ESP-IDF SPI/SDSPI (`driver/spi_master.h`, `driver/spi_common.h`, `driver/sdspi_host.h`) qui exposent `spi_bus_initialize()` et les macros `SDSPI_HOST_DEFAULT()` / `SDSPI_DEVICE_CONFIG_DEFAULT()` utilisées dans `sd_card.c`.
 
+### 🔋 Module Batterie (battery.h/c)
+
+**Responsabilité :** Mesure de la tension batterie LiPo via ADC
+
+```c
+// API batterie
+esp_err_t init_battery(void);
+esp_err_t read_battery(battery_info_t *info);  // voltage (V) + pourcentage (%)
+esp_err_t deinit_battery(void);
+```
+
+**Fonctionnalités :**
+- Lecture ADC1 canal 3 (GPIO3) avec atténuation 12dB
+- **Calibration automatique** via curve fitting (ESP32-C3)
+- Moyennage sur 16 lectures pour stabilité
+- Prise en compte du **diviseur de tension ×2** (100K/100K du LOLIN C3 Mini)
+- Conversion en pourcentage : **4.15V = 100%**, 3.0V = 0% (seuil calibré sur batterie LiPo 3000mAh neuve)
+- Libération immédiate de l'ADC après lecture (économie deep sleep)
+
+**📊 Utilisation dans app_main :**
+```c
+battery_info_t bat;
+int battery_pct = -1;       // -1 = lecture indisponible
+float battery_volt = -1.0f; // -1.0 = lecture indisponible
+
+init_battery();
+if (read_battery(&bat) == ESP_OK) {
+    battery_pct = bat.percentage;
+    battery_volt = bat.voltage;
+}
+deinit_battery();
+```
+
+**📈 Données batterie dans le CSV :**
+
+Chaque mesure enregistrée inclut **deux colonnes batterie** :
+
+| Colonne | Type | Valeur N/A | Description |
+|---------|------|------------|-------------|
+| `Battery_%` | int | `N/A` | Pourcentage estimé (approximation linéaire 4.15V→3.0V) |
+| `Battery_V` | float | `N/A` | Tension brute mesurée en Volts |
+
+```csv
+ID,DateTime,Temperature_C,Humidity_%,Battery_%,Battery_V
+1,2026-02-07 14:30:00,19.85,52.30,78,3.92
+2,2026-02-07 15:00:00,19.72,53.10,77,3.90
+...
+500,2026-02-18 10:30:00,18.40,86.20,42,3.68
+```
+
+**🔬 Pourquoi stocker les deux valeurs ?**
+
+Le pourcentage est une **estimation calculée** à partir d'une courbe de décharge théorique. La tension brute est la **donnée physique réelle**. Stocker les deux permet :
+
+- **📉 Tracer la courbe de décharge réelle** de la batterie dans les conditions terrain (température de la cavité, cycles deep sleep)
+- **🔍 Détecter le vieillissement** : une batterie usée présente une tension nominale plus basse à pourcentage équivalent
+- **🔧 Recalibrer la conversion V→%** : les données réelles permettent d'affiner la courbe de conversion pour les futures missions
+- **🌡️ Corréler température et autonomie** : le froid des cavités (~10-15°C) affecte la capacité des LiPo, les données CSV permettront de quantifier cet impact
+
+**⚠️ Approximation linéaire actuelle :**
+
+La conversion V→% utilise actuellement une **interpolation linéaire** entre 4.15V (100%) et 3.0V (0%). Or une batterie LiPo se décharge selon une **courbe en S** caractéristique :
+
+```
+Tension (V)
+4.15 ┤▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░  ← Chute rapide initiale
+3.90 ┤             ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░
+3.80 ┤                        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  ← Long plateau ~3.7V
+3.70 ┤                                         ▓▓
+3.50 ┤                                          ▓  ← Chute brutale
+3.00 ┤                                          ▓  ← Coupure
+     └──────────────────────────────────────────────
+     100%                                      0%
+```
+
+Conséquence avec la courbe linéaire : le **% affiché chute trop vite au début** (4.15→3.8V) et **trop lentement au milieu** (long plateau ~3.7V). C'est acceptable pour le moment, car la tension brute (`Battery_V`) est stockée dans le CSV pour une analyse post-traitement précise.
+
+**📋 TODO — Courbe de décharge réelle :**
+
+> 🔬 **Objectif :** Après une première **décharge complète sur le terrain** (batterie LiPo 3000mAh, deep sleep cyclique), analyser les colonnes `Battery_V` et `Battery_%` du CSV pour :
+>
+> 1. **Tracer la courbe V = f(temps)** réelle en conditions d'utilisation (température cavité, cycles deep sleep)
+> 2. **Identifier les seuils clés** : début du plateau, fin du plateau, tension de coupure effective
+> 3. **Remplacer l'interpolation linéaire** par une courbe multi-segments ou polynomiale calibrée sur les données réelles :
+>    ```c
+>    // Exemple futur : conversion LiPo multi-segments
+>    if (voltage >= 4.00f) percentage = map(voltage, 4.00, 4.15, 90, 100);
+>    else if (voltage >= 3.75f) percentage = map(voltage, 3.75, 4.00, 40, 90);  // plateau
+>    else if (voltage >= 3.50f) percentage = map(voltage, 3.50, 3.75, 10, 40);
+>    else percentage = map(voltage, 3.00, 3.50, 0, 10);  // chute finale
+>    ```
+> 4. **Corréler avec la température** : évaluer l'impact du froid sur la capacité effective
+> 5. **Valider sur plusieurs cycles** : comparer les courbes de décharge successives pour détecter le vieillissement
+>
+> **Données nécessaires :** Un CSV complet d'une décharge 100%→0% en conditions réelles (intervalle 30min, batterie 3000mAh).
+
+> 💡 **À terme :** Les valeurs batterie seront transmises via BLE à l'appli Angular pour affichage du niveau de charge et analyse statistique de l'usure.
+
+### 🕐 Module RTC DS1307 (rtc_clock.h/c)
+
+**Responsabilité :** Horodatage précis des mesures via le DS1307 du shield SD/RTC
+
+```c
+// API RTC
+esp_err_t init_rtc(void);                              // Init I2C + vérif oscillateur
+esp_err_t rtc_get_time(rtc_time_t *time);              // Lire date/heure
+esp_err_t rtc_set_time(const rtc_time_t *time);        // Programmer date/heure
+esp_err_t rtc_set_time_from_compile(void);             // Auto-programmation
+void rtc_format_datetime(const rtc_time_t *time, char *buf, size_t len);
+esp_err_t deinit_rtc(void);
+```
+
+**Fonctionnalités :**
+- Communication I2C avec le DS1307 (adresse 0x68, SDA=GPIO8, SCL=GPIO10)
+- Lecture/écriture des 7 registres temps en une seule transaction I2C
+- Conversion BCD ↔ décimal automatique
+- Calcul automatique du jour de la semaine (algorithme de Sakamoto)
+- Détection oscillateur arrêté (bit CH) pour savoir si l'heure est valide
+
+**⏰ Mise à l'heure automatique :**
+
+Le DS1307 est maintenu par une **pile CR2032** sur le shield, mais il doit être programmé au moins une fois. Le firmware utilise une stratégie **auto-détection** :
+
+1. Au boot, il lit l'heure du DS1307
+2. Si l'année est **< 2024** (RTC vierge ou pile changée) → il programme automatiquement la **date/heure de compilation** (`__DATE__` / `__TIME__`)
+3. Si l'année est **≥ 2024** → il ne touche à rien (la pile a maintenu l'heure)
+
+```c
+// Logique dans app_main()
+rtc_time_t now;
+rtc_get_time(&now);
+if (now.year < 2024) {
+    rtc_set_time_from_compile();  // Auto-programmation
+    rtc_get_time(&now);           // Relire
+}
+// Affiche: 🕐 RTC: 2026-02-06 14:30:05
+```
+
+> 💡 **Précision :** Décalage de ~10-30s max (temps de flash après compilation). La pile CR2032 maintient ensuite l'heure indéfiniment. Plus tard, le BLE permettra une synchronisation à la seconde près depuis l'appli Angular.
+
+**📚 Bus I2C partagé :** Le bus I2C (SDA=GPIO8, SCL=GPIO10) est **partagé avec le capteur SHT45** (adresse 0x44). Le module RTC expose le handle du bus via `rtc_get_i2c_bus()` pour que le SHT45 puisse s'y rattacher sans recréer le bus.
+
+### 🌡️ Module Capteur SHT45 (sht45.h/c)
+
+**Responsabilité :** Mesure de la température et de l'humidité via le capteur Sensirion SHT45
+
+```c
+// API SHT45
+esp_err_t init_sht45(i2c_master_bus_handle_t bus_handle);  // Init sur bus I2C existant
+esp_err_t read_sht45(sht45_data_t *data);                  // Lecture temp (°C) + humidité (%)
+esp_err_t deinit_sht45(void);                              // Libération du device I2C
+```
+
+**Fonctionnalités :**
+- Communication I2C avec le SHT45 (adresse 0x44, bus partagé avec DS1307)
+- Mesure **haute précision** (commande 0xFD) : ±0.1°C / ±1% RH
+- **Vérification CRC-8** (polynôme 0x31) sur chaque valeur reçue
+- **Retry automatique** avec backoff (3 tentatives, 10 ms entre chaque) en cas de NACK
+- **Soft reset** du capteur à l'initialisation pour état propre
+- **Calibration configurable** via offsets dans `config.h`
+- Fallback sur valeurs simulées si capteur indisponible
+
+**🔗 Partage du bus I2C :**
+
+Le SHT45 ne crée pas son propre bus I2C. Il se rattache au bus existant créé par le module RTC :
+
+```c
+// Séquence dans app_main()
+init_rtc();                                    // 1. Crée le bus I2C + init DS1307
+i2c_master_bus_handle_t bus = rtc_get_i2c_bus(); // 2. Récupère le handle du bus
+init_sht45(bus);                               // 3. Ajoute le SHT45 sur le même bus
+read_sht45(&data);                             // 4. Lecture température + humidité
+deinit_sht45();                                // 5. Retire le SHT45 du bus
+deinit_rtc();                                  // 6. Détruit le bus I2C
+```
+
+**🔧 Calibration :**
+
+Les offsets de calibration sont définis dans `config.h` et appliqués automatiquement après conversion :
+
+```c
+#define SHT45_TEMP_OFFSET     -1.7f  // Correction température en °C
+#define SHT45_HUMIDITY_OFFSET  0.0f   // Correction humidité en %RH
+```
+
+> 💡 **Astuce calibration :** Comparer la sonde avec un thermomètre de référence, puis ajuster `SHT45_TEMP_OFFSET` dans `config.h`. Pas besoin de modifier le code du driver.
+
+**🧪 Mode test (TEST_SHT45) :**
+
+Un mode de test dédié permet de valider le capteur sur breadboard sans le shield RTC/SD :
+
+```c
+// Décommenter dans config.h pour activer
+#define TEST_SHT45
+```
+
+Ce mode crée un `app_main()` simplifié qui :
+- Initialise le bus I2C directement (pas besoin du DS1307)
+- Lit la sonde en boucle toutes les 2 secondes
+- Affiche un tableau formaté sur le moniteur série
+
+```text
+🧪 === MODE TEST SHT45 ===
+✅ Bus I2C initialisé
+✅ SHT45 détecté - Début des lectures (toutes les 2s)
+  #  |  Température  |  Humidité
+-----|--------------|----------
+  1  |    20.05 °C   |  47.77 %
+  2  |    20.07 °C   |  47.72 %
+```
+
 ### ⚙️ Configuration globale (config.h)
 
 **Responsabilité :** Centralisation de tous les paramètres
 
 ```c
-// Flags de compilation
-#define VISUAL_MODE      // Active/désactive les LEDs
-//#define PRODUCTION_MODE  // Mode logs minimaux
+// Modes de compilation
+// #define TEST_SHT45       // Mode test sonde (lecture en boucle sur moniteur série)
+#define VISUAL_MODE         // Active/désactive les LEDs
+// #define PRODUCTION_MODE  // Mode logs minimaux
 
 // Paramètres système
 #define DEEP_SLEEP_DURATION_SEC 5
-#define BUFFER_FLUSH_THRESHOLD 500
-#define WAKEUP_BUTTON_PIN GPIO_NUM_0
+#define BUFFER_FLUSH_THRESHOLD 20
+#define WAKEUP_BUTTON_PIN GPIO_NUM_2
+
+// Bus I2C (RTC DS1307 + SHT45)
+#define I2C_SDA_PIN  8   // D2 → GPIO8
+#define I2C_SCL_PIN  10  // D1 → GPIO10
+
+// Calibration SHT45 (offsets ajoutés aux valeurs brutes)
+#define SHT45_TEMP_OFFSET     -1.7f  // Correction température en °C
+#define SHT45_HUMIDITY_OFFSET  0.0f   // Correction humidité en %RH
 ```
 
 **Avantages :**
 - Configuration partagée entre tous les modules
 - Compilation conditionnelle centralisée
 - Paramètres facilement modifiables
+- Calibration capteur ajustable sans toucher au code
 
 ### 🔧 Intégration dans CMakeLists.txt
 
 ```cmake
 idf_component_register(
-    SRCS "main.c" "led_rgb.c" "sd_card.c"  # Tous les sources
+    SRCS "main.c" "led_rgb.c" "sd_card.c" "battery.c" "rtc_clock.c" "sht45.c"
     INCLUDE_DIRS "."                        # Headers locaux
-    REQUIRES driver esp_timer fatfs...      # Dépendances ESP-IDF
+    REQUIRES driver esp_timer fatfs sdmmc spiffs esp_adc
 )
 ```
 
@@ -694,10 +967,13 @@ pio device monitor
 ```
 chiro_logger/
 ├── 📁 src/                       # Code source principal
-│   ├── 🎯 main.c                 # Logique principale (~320 lignes)
+│   ├── 🎯 main.c                 # Logique principale
 │   ├── ⚙️ config.h              # Configuration globale partagée
 │   ├── 🎨 led_rgb.h/.c          # Module LED RGB WS2812 + RMT
 │   ├── 💾 sd_card.h/.c          # Module carte SD SPI + FAT32
+│   ├── 🔋 battery.h/.c          # Module mesure batterie (ADC)
+│   ├── 🕐 rtc_clock.h/.c        # Module horloge RTC DS1307 (I2C)
+│   ├── 🌡️ sht45.h/.c            # Module capteur SHT45 (I2C)
 │   └── 🔧 CMakeLists.txt         # Configuration build ESP-IDF
 ├── 📁 components/                # Modules ESP-IDF externes
 │   └── ble_transfer/             # Module BLE (à implémenter)

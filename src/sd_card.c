@@ -84,14 +84,31 @@ esp_err_t unmount_sd_card(void)
     return ESP_OK;
 }
 
-esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, float temperature, float humidity)
+esp_err_t log_data_to_csv(const char* filepath, int id, const char* datetime, float temperature, float humidity, int battery_pct, float battery_volt)
 {
     FILE *f = fopen(filepath, "a");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for writing: %s", filepath);
         return ESP_FAIL;
     }
-    fprintf(f, "%d,%s,%.2f,%.2f\n", id, datetime, temperature, humidity);
+    
+    // Colonnes fixes: ID, DateTime, Temperature, Humidity
+    fprintf(f, "%d,%s,%.2f,%.2f,", id, datetime, temperature, humidity);
+    
+    // Battery %
+    if (battery_pct < 0) {
+        fprintf(f, "N/A,");
+    } else {
+        fprintf(f, "%d,", battery_pct);
+    }
+    
+    // Battery V
+    if (battery_volt < 0.0f) {
+        fprintf(f, "N/A\n");
+    } else {
+        fprintf(f, "%.2f\n", battery_volt);
+    }
+    
     fclose(f);
     ESP_LOGI(TAG, "Data logged to %s", filepath);
     return ESP_OK;
