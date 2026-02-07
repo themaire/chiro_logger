@@ -529,6 +529,7 @@ esp_err_t init_led_rgb(void);
 void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, 
                   uint8_t blink_count, uint32_t blink_period_ms, bool force_display);
 void led_off(void);
+void deinit_led_rgb(void);  // Extinction complète + verrouillage GPIO avant deep sleep
 ```
 
 **Fonctionnalités :**
@@ -537,6 +538,41 @@ void led_off(void);
 - Patterns de clignotement configurables
 - Gestion automatique de l'encodage GRB 24 bits
 - **🚨 Mode force_display** : Outrepasse VISUAL_MODE pour erreurs critiques
+- **💤 Extinction propre avant deep sleep** via `deinit_led_rgb()`
+
+**⚠️ Piège hardware : LED qui reste allumée en deep sleep**
+
+La LED WS2812 est alimentée en **3.3V en permanence** (même quand le CPU dort). Quand l'ESP32-C3 entre en deep sleep, tous les GPIOs passent en **état flottant** (haute impédance). Le WS2812, qui reste sous tension, interprète ce bruit électrique sur sa ligne de données (GPIO7) et réaffiche une couleur parasite — typiquement du bleu.
+
+En Python/MicroPython, un simple `pin.value(0)` suffirait. En C bare-metal sur ESP-IDF, il faut orchestrer **4 opérations** dans le bon ordre :
+
+```c
+void deinit_led_rgb(void) {
+    // 1. Envoyer 3× la trame "noir" (0,0,0) avec délais généreux
+    //    pour être certain que le WS2812 latch bien la couleur noire
+    for (int i = 0; i < 3; i++) {
+        ws2812_send_pixel(0, 0, 0);
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    
+    // 2. Désactiver et libérer le canal RMT (sinon conflit au réveil)
+    rmt_disable(led_chan);
+    rmt_del_channel(led_chan);
+    
+    // 3. Reprendre le contrôle du GPIO et le forcer à LOW
+    gpio_reset_pin(LED_RGB_PIN);
+    gpio_set_direction(LED_RGB_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_RGB_PIN, 0);
+    
+    // 4. VERROUILLER l'état LOW pendant tout le deep sleep
+    //    Sans ça, le GPIO flotte dès que le CPU s'éteint !
+    gpio_hold_en(LED_RGB_PIN);
+}
+```
+
+**🔑 Le secret : `gpio_hold_en()`** — Cette fonction ESP-IDF **gèle** l'état électrique du GPIO pendant le deep sleep. Le pin reste physiquement tiré à LOW, empêchant le WS2812 de recevoir du bruit. Au réveil, `init_led_rgb()` appelle `gpio_hold_dis()` pour déverrouiller le GPIO avant de reconfigurer le canal RMT.
+
+> 💡 **Leçon embarquée :** Sur un microcontrôleur, éteindre une LED adressable avant le deep sleep ne se résume pas à "envoyer du noir". Il faut aussi maîtriser l'état électrique du GPIO **après** l'extinction du CPU — un niveau de détail que les frameworks haut niveau masquent complètement.
 
 **🔧 Paramètre force_display :**
 ```c

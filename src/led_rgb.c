@@ -3,6 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/rmt_tx.h>
+#include <driver/gpio.h>
 #include <esp_log.h>
 
 static const char *TAG = "LED_RGB";
@@ -85,6 +86,9 @@ esp_err_t init_led_rgb(void) {
     return ESP_OK;
 #endif
     
+    // Libérer le verrouillage GPIO si actif (après un réveil de deep sleep)
+    gpio_hold_dis(LED_RGB_PIN);
+    
     ESP_LOGI(TAG, "Initialisation LED RGB WS2812 sur GPIO%d", LED_RGB_PIN);
     
     // Configuration du canal RMT
@@ -158,4 +162,29 @@ void led_off(void) {
     if (led_chan != NULL) {
         ws2812_send_pixel(0, 0, 0);
     }
+}
+
+void deinit_led_rgb(void) {
+    // Éteindre la LED, libérer le canal RMT, et VERROUILLER le GPIO bas
+    // INDISPENSABLE avant deep sleep sinon le GPIO flotte et la LED WS2812 reste allumée
+    // car le WS2812 reste alimenté en 3.3V pendant le deep sleep
+    if (led_chan != NULL) {
+        // Envoyer plusieurs trames noires avec délais généreux pour être certain
+        // que le WS2812 latch bien la couleur noire
+        for (int i = 0; i < 3; i++) {
+            ws2812_send_pixel(0, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+        rmt_disable(led_chan);             // Désactiver le canal RMT
+        rmt_del_channel(led_chan);         // Libérer le canal RMT
+        led_chan = NULL;
+    }
+    // Forcer le GPIO7 en sortie LOW
+    gpio_reset_pin(LED_RGB_PIN);
+    gpio_set_direction(LED_RGB_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_RGB_PIN, 0);
+    // VERROUILLER l'état LOW pendant le deep sleep
+    // Sans ça, le GPIO flotte quand le CPU s'éteint et le WS2812 reçoit du bruit
+    gpio_hold_en(LED_RGB_PIN);
+    ESP_LOGI("LED_RGB", "LED éteinte et GPIO%d verrouillé LOW pour deep sleep", LED_RGB_PIN);
 }

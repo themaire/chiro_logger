@@ -53,4 +53,16 @@ void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t 
  */
 void led_off(void);
 
+/**
+ * @brief Désactive complètement la LED RGB avant deep sleep
+ * 
+ * Éteint la LED (3 trames noires), libère le canal RMT, force le GPIO7
+ * en sortie LOW puis verrouille cet état avec gpio_hold_en().
+ * Le WS2812 reste alimenté en 3.3V pendant le deep sleep - sans ce
+ * verrouillage, le GPIO flotte et la LED réaffiche la dernière couleur.
+ * 
+ * Note: init_led_rgb() appelle gpio_hold_dis() automatiquement au réveil.
+ */
+void deinit_led_rgb(void);
+
 #endif // LED_RGB_H
