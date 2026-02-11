@@ -81,14 +81,14 @@ static void ws2812_send_pixel(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 esp_err_t init_led_rgb(void) {
-#ifndef VISUAL_MODE
-    // Mode terrain : LED désactivées pour économie batterie
-    return ESP_OK;
-#endif
-    
-    // Libérer le verrouillage GPIO si actif (après un réveil de deep sleep)
+    // TOUJOURS libérer le verrouillage GPIO du deep sleep précédent
+    // La LED WS2812 est alimentée en 3.3V en permanence, donc le GPIO7
+    // doit être configuré en sortie LOW même sans VISUAL_MODE
     gpio_hold_dis(LED_RGB_PIN);
-    
+
+    // Toujours initialiser le RMT : même sans VISUAL_MODE, on a besoin
+    // du canal pour le flash bleu de démarrage (vérification batterie)
+    // et les signaux d'urgence (force_display = true)
     ESP_LOGI(TAG, "Initialisation LED RGB WS2812 sur GPIO%d", LED_RGB_PIN);
     
     // Configuration du canal RMT
@@ -171,18 +171,39 @@ void deinit_led_rgb(void) {
     if (led_chan != NULL) {
         // Envoyer plusieurs trames noires avec délais généreux pour être certain
         // que le WS2812 latch bien la couleur noire
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 5; i++) {
             ws2812_send_pixel(0, 0, 0);
-            vTaskDelay(pdMS_TO_TICKS(5));
+            vTaskDelay(pdMS_TO_TICKS(2));
         }
+        // Attendre le temps de reset WS2812 (>280µs) avant de toucher au GPIO
+        vTaskDelay(pdMS_TO_TICKS(1));
+
         rmt_disable(led_chan);             // Désactiver le canal RMT
         rmt_del_channel(led_chan);         // Libérer le canal RMT
         led_chan = NULL;
     }
-    // Forcer le GPIO7 en sortie LOW
-    gpio_reset_pin(LED_RGB_PIN);
-    gpio_set_direction(LED_RGB_PIN, GPIO_MODE_OUTPUT);
+
+    // ⚠️ NE PAS utiliser gpio_reset_pin() ici !
+    // gpio_reset_pin() active brièvement le pullup interne du GPIO7.
+    // Cette impulsion HIGH (~1-10µs) sur la ligne de données WS2812 peut être
+    // interprétée comme un ou plusieurs bits valides, causant un allumage aléatoire
+    // de la LED (souvent bleu) pendant le deep sleep.
+    // Bug intermittent : ~1 fois sur 6-12 cycles.
+    //
+    // Solution : gpio_config() avec pulldown activé pour une transition propre.
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << LED_RGB_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,   // Maintient la ligne basse pendant la transition
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
     gpio_set_level(LED_RGB_PIN, 0);
+
+    // Attendre >280µs pour que le WS2812 latch la trame noire finale
+    vTaskDelay(pdMS_TO_TICKS(1));
+
     // VERROUILLER l'état LOW pendant le deep sleep
     // Sans ça, le GPIO flotte quand le CPU s'éteint et le WS2812 reçoit du bruit
     gpio_hold_en(LED_RGB_PIN);

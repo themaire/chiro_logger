@@ -328,8 +328,9 @@ esp_err_t flush_buffer_to_sd(void)
     
     ESP_LOGI(TAG, "✅ %d lignes copiées vers la SD", lines_copied);
     
-    // Signal LED de flush réussi
-    set_led_rgb(0, 255, 0, 500, 10, 50, false);  // Vert 10 flashs rapides
+    // Signal LED de flush réussi (5 flashs au lieu de 10 pour réduire
+    // l'usure du périphérique RMT — chaque flash = 2 create/delete d'encodeur)
+    set_led_rgb(0, 255, 0, 500, 5, 100, false);  // Vert 5 flashs
     
     // Vider le tampon après transfert réussi
     if (remove(BUFFER_CSV_FILE) == 0) {
@@ -499,19 +500,17 @@ void app_main(void)
     // Configuration initiale
     LOG_DEBUG(TAG, "Initialisation du système...");
     
-    #ifdef VISUAL_MODE
-        // Initialiser la LED RGB pour feedback visuel (uniquement si VISUAL_MODE activé)
-        esp_err_t ret = init_led_rgb();
-        if (ret != ESP_OK) {
-            LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED RGB");
-        } else {
-            // Signal de démarrage : bleu pulsé
-            set_led_rgb(0, 0, 255, 1000, 3, 300, false);  // Bleu 3 clignotements
-        }
-    #else
-        LOG_DEBUG(TAG, "🔋 LED RGB désactivées (mode économie batterie)");
-        esp_err_t ret;
-    #endif
+    // Toujours initialiser la LED RGB : même sans VISUAL_MODE, il faut
+    // configurer GPIO7 en sortie LOW sinon le WS2812 (alimenté en 3.3V)
+    // capte du bruit et s'allume en bleu au boot.
+    esp_err_t ret = init_led_rgb();
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "⚠️  Impossible d'initialiser la LED RGB");
+    } else {
+        // Signal de démarrage : bleu pulsé — TOUJOURS visible (même sans VISUAL_MODE)
+        // Permet de vérifier sur le terrain que le système a encore de la batterie
+        set_led_rgb(0, 0, 255, 1000, 3, 300, true);  // Bleu 3 clignotements FORCÉS
+    }
     
     // Initialiser le bouton de réveil pour le mode transfert
     ret = init_wakeup_button();
@@ -699,9 +698,13 @@ void app_main(void)
     LOG_DEBUG(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
     LOG_DEBUG(TAG, "🔘 Réveil possible par bouton GPIO %d pour mode transfert", WAKEUP_BUTTON_PIN);
     
-    // Signal LED avant deep sleep - Bleu fade out
-    set_led_rgb(0, 0, 50, 500, 1, 0, false);  // Bleu dim 1 flash
-    deinit_led_rgb();  // Désactiver complètement la LED + GPIO bas (sinon elle reste allumée en deep sleep)
+    // ⚠️ PAS de set_led_rgb() ici avant deinit !
+    // Tous les appels set_led_rgb() du cycle se terminent déjà par un frame noir
+    // (WS2812 éteint). Envoyer du bleu ici est risqué : lors des cycles de flush,
+    // le périphérique RMT subit ~40 create/delete d'encodeur. Si un frame noir
+    // suivant le bleu échoue, le WS2812 garde la couleur bleue pendant le deep sleep.
+    // Bug observé : bleu parasite ~1 fois par flush (toutes les 20 mesures).
+    deinit_led_rgb();  // Éteindre proprement + verrouiller GPIO bas pour deep sleep
     
     // Configurer le réveil par timer
     esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes

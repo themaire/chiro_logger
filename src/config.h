@@ -23,7 +23,7 @@
 // ============================================================================
 // Active les signaux LED RGB pour debugging et tests terrain
 // COMMENTER cette ligne pour désactiver les LEDs et économiser la batterie
-#define VISUAL_MODE
+// #define VISUAL_MODE
 
 // ============================================================================
 // 📟 MODE PRODUCTION - Optimisation logs
@@ -35,12 +35,13 @@
 // ============================================================================
 // ⏰ CONFIGURATION DEEP SLEEP
 // ============================================================================
-#define DEEP_SLEEP_DURATION_SEC 10  // Durée entre mesures (secondes)
+// #define DEEP_SLEEP_DURATION_SEC 60  // Durée entre mesures (secondes)
+#define DEEP_SLEEP_DURATION_SEC 1800  // 30 minutes = 30 minutes entre mesures (pour tests terrain plus rapides)
 
 // ============================================================================
 // 💾 CONFIGURATION TAMPON FLASH
 // ============================================================================
-#define BUFFER_FLUSH_THRESHOLD 20  // Nombre de mesures avant flush SD
+#define BUFFER_FLUSH_THRESHOLD 200  // Nombre de mesures avant flush SD
 #define BUFFER_MOUNT_POINT "/buffer"
 #define BUFFER_CSV_FILE "/buffer/data_buffer.csv"
 
