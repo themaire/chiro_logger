@@ -18,6 +18,7 @@
   - [⚙️ Spécifications techniques du dispositif](#️-spécifications-techniques-du-dispositif)
     - [Matériel principal](#matériel-principal)
     - [Matériel principal](#matériel-principal-1)
+    - [📌 Pinout ESP32-C3 — Affectation des GPIOs](#-pinout-esp32-c3--affectation-des-gpios)
     - [Fonctionnement logiciel](#fonctionnement-logiciel)
       - [🔁 Mode normal (acquisition)](#-mode-normal-acquisition)
       - [🔋 Deep Sleep - Optimisation énergétique](#-deep-sleep---optimisation-énergétique)
@@ -86,6 +87,34 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 | **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Chargeur intégré dans le LOLIN C3 Mini, autonomie estimée à plusieurs mois/années |
 | **Boutons tactiles étanches** | Déclencheurs sans ouverture | Activation mode transfert BLE + vérification charge batterie |
 | **Connecteur USB-C étanche** | Recharge sans ouverture | Le chargeur de batterie est intégré au LOLIN C3 Mini. Le connecteur est soudé aux à l'entrée 5V de la carte. |
+
+### 📌 Pinout ESP32-C3 — Affectation des GPIOs
+
+Vue d'ensemble de l'utilisation des GPIOs sur le **LOLIN C3 Mini / PICO** :
+
+| GPIO | Fonction | Périphérique | Défini dans | Remarques |
+|------|----------|-------------|-------------|-----------|
+| **0** | SPI MISO | Carte SD (DO) | `sd_card.c` | Shield D1 Mini : D6 |
+| **1** | SPI CLK | Carte SD (CLK) | `sd_card.c` | Shield D1 Mini : D5 |
+| **2** | Bouton réveil | Deep sleep wakeup | `config.h` | Pull-up interne, réveil sur niveau bas |
+| **3** | ADC1_CH3 | Batterie (diviseur 2:1) | `battery.c` | Tension via pont diviseur 100K/100K |
+| **4** | SPI MOSI | Carte SD (DI) | `sd_card.c` | Shield D1 Mini : D7 |
+| **5** | SPI CS | Carte SD (CS) | `sd_card.c` | Shield D1 Mini : D8 |
+| **6** | Sortie GPIO | LED témoin bouton réveil | `config.h` | Témoin lumineux intégré au bouton de réveil (GPIO2) |
+| **7** | RMT TX | LED RGB WS2812 | `led_rgb.c` | LED intégrée LOLIN C3 PICO, alimentée 3.3V en permanence |
+| **8** | I2C SDA | RTC DS1307 + SHT45 | `config.h` | Shield D1 Mini : D2 |
+| **9** | BOOT | **🟡 RÉSERVÉ** | — | Bouton BOOT du LOLIN C3 Mini — forcer le mode flash au démarrage |
+| **10** | I2C SCL | RTC DS1307 + SHT45 | `config.h` | Shield D1 Mini : D1 |
+| **18** | USB D- | USB natif | — | Réservé USB-CDC (logs série) |
+| **19** | USB D+ | USB natif | — | Réservé USB-CDC (logs série) |
+| **20** | UART RX | — | — | RX0 par défaut |
+| **21** | UART TX | — | — | TX0 par défaut |
+
+> **💡 Bouton de réveil avec témoin lumineux :**
+> - **GPIO2** → entrée bouton physique (pull-up interne, deep sleep wakeup sur niveau bas)
+> - **GPIO6** → sortie LED témoin intégrée au bouton (indique que le système est actif / en mode transfert)
+>
+> **🟡 GPIO9** est réservé comme bouton BOOT natif du LOLIN C3 Mini. Un appui pendant le démarrage force le mode flash (upload firmware). Ne pas connecter de bouton externe dessus.
 
 ### Fonctionnement logiciel
 
