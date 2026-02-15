@@ -99,7 +99,7 @@ static void create_default_config_file(void) {
     }
 
     fprintf(f, "# Configuration Chiro Logger\n");
-    fprintf(f, "# Editez ce fichier avec le Bloc-notes. Ne changez pas les noms (GAUCHE=...). \n");
+    fprintf(f, "# Editez ce fichier avec le Bloc-notes. Ne changez pas les noms des variables ci-dessous(EEP_SLEEP_SEC=...). \n");
     fprintf(f, "# Redémarrez le logger pour appliquer les changements.\n\n");
 
     fprintf(f, "# Duree entre deux mesures (secondes). Ex: 300=5min, 1800=30min\n");

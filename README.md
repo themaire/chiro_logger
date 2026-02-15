@@ -80,8 +80,9 @@ Si le fichier est absent au démarrage, il est généré automatiquement avec le
 | `DEEP_SLEEP_SEC` | Intervalle de temps entre deux mesures (en secondes) | `300` (5 min) | `DEEP_SLEEP_SEC=1800` (30 min) |
 | `FLUSH_THRESHOLD` | Nombre de mesures stockées en tampon flash avant écriture sur SD | `200` | `FLUSH_THRESHOLD=500` |
 | `VISUAL_MODE` | Active (`1`) ou désactive (`0`) le feedback lumineux LED (mode furtif) | `1` (Activé) | `VISUAL_MODE=0` |
-| `OFFSET_T` | Valeur de calibration ajoutée à la température mesurée (°C) | `0.0` | `OFFSET_T=-0.5` |
-| `OFFSET_H` | Valeur de calibration ajoutée à l'humidité mesurée (%) | `0.0` | `OFFSET_H=1.2` |
+| `TEMP_OFFSET` | Valeur de calibration ajoutée à la température mesurée (°C) | `0.0` | `TEMP_OFFSET=-0.5` |
+| `HUM_OFFSET` | Valeur de calibration ajoutée à l'humidité mesurée (%) | `0.0` | `HUM_OFFSET=1.2` |
+| `PRODUCTION_MODE` | Active (`1`) ou désactive (`0`) le mode production (moins de logs) | `0` (Debug) | `PRODUCTION_MODE=1` |
 
 > 💡 **Conseil déploiement** : Pour une autonomie maximale sur plusieurs mois, utilisez `VISUAL_MODE=0` et augmentez `DEEP_SLEEP_SEC` (ex: 1800s pour 30min). `FLUSH_THRESHOLD` élevé (ex: 500) réduit l'usure de la carte SD.
 
