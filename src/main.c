@@ -17,6 +17,7 @@
 #include <esp_vfs_semihost.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
+#include "settings.h"
 #include "led_rgb.h"
 #include "sd_card.h"
 #include "battery.h"
@@ -53,8 +54,8 @@ RTC_DATA_ATTR int cycle_counter = 0;
  * - ~20 mA par couleur à pleine intensité (60 mA max pour blanc)
  * - Impact modéré mais mesurable sur batterie long terme
  * 
- * MODE TERRAIN (autonomie max) : Commenter #define VISUAL_MODE
- * MODE DEBUG/TEST : Décommenter #define VISUAL_MODE
+ * MODE TERRAIN (autonomie max) : VISUAL_MODE=0 dans config.txt
+ * MODE DEBUG/TEST : VISUAL_MODE=1 dans config.txt
  */
 
 // Déclarations de fonctions
@@ -64,15 +65,16 @@ void handle_transfer_mode(void);
 void emergency_mode(const char *reason);
 
 // Macros pour logs économes en énergie
-#ifdef PRODUCTION_MODE
-    #define LOG_ESSENTIAL(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
-    #define LOG_DEBUG(tag, format, ...) // Pas de log en production
-    #define LOG_VERBOSE(tag, format, ...) // Pas de log en production
-#else
-    #define LOG_ESSENTIAL(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
-    #define LOG_DEBUG(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
-    #define LOG_VERBOSE(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
-#endif
+#define LOG_ESSENTIAL(tag, format, ...) ESP_LOGI(tag, format, ##__VA_ARGS__)
+
+// En mode production dynamique, ces logs ne s'affichent que si g_settings.production_mode est OFF
+#define LOG_DEBUG(tag, format, ...) do { \
+    if (!g_settings.production_mode) ESP_LOGI(tag, format, ##__VA_ARGS__); \
+} while(0)
+
+#define LOG_VERBOSE(tag, format, ...) do { \
+    if (!g_settings.production_mode) ESP_LOGI(tag, format, ##__VA_ARGS__); \
+} while(0)
 
 // Fonction d'initialisation du tampon flash (partition SPIFFS qui 
 // ne consomme pas de SD et ne s'efface pas en cas de coupure d'alimentation)
@@ -497,6 +499,10 @@ void app_main(void)
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
     print_wakeup_info();
     
+    // Charger la configuration depuis la SD (ou défauts si SD absente)
+    // IMPORTANT : C'est ici que g_settings est initialisé
+    load_settings_from_sd();
+    
     // Configuration initiale
     LOG_DEBUG(TAG, "Initialisation du système...");
     
@@ -594,7 +600,7 @@ void app_main(void)
         // Après le mode transfert, retourner en deep sleep immédiatement
         LOG_ESSENTIAL(TAG, "💤 Retour en deep sleep après mode transfert...");
         deinit_led_rgb();  // Désactiver complètement la LED avant deep sleep
-        esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL);
+        esp_sleep_enable_timer_wakeup((uint64_t)g_settings.deep_sleep_duration_sec * 1000000ULL);
         esp_deep_sleep_start();
     }
     
@@ -646,9 +652,9 @@ void app_main(void)
         
         // Vérifier si il faut faire un flush vers la SD
         int buffer_count = count_buffer_lines();
-        LOG_ESSENTIAL(TAG, "📊 Tampon: %d/%d mesures", buffer_count, BUFFER_FLUSH_THRESHOLD);
+        LOG_ESSENTIAL(TAG, "📊 Tampon: %d/%lu mesures", buffer_count, (unsigned long)g_settings.buffer_flush_threshold);
         
-        if (buffer_count >= BUFFER_FLUSH_THRESHOLD) {
+        if (buffer_count >= g_settings.buffer_flush_threshold) {
             LOG_ESSENTIAL(TAG, "🔄 Seuil atteint - flush vers la carte SD...");
             // Signal LED : flush en cours - Cyan pulsé
             set_led_rgb(0, 255, 255, 500, 2, 200, false);  // Cyan 2 clignotements rapides
@@ -695,7 +701,7 @@ void app_main(void)
     }
     
     // Configurer le deep sleep timer ET le réveil par bouton
-    LOG_DEBUG(TAG, "💤 Entrée en deep sleep pour %d secondes...", DEEP_SLEEP_DURATION_SEC);
+    LOG_DEBUG(TAG, "💤 Entrée en deep sleep pour %lu secondes...", (unsigned long)g_settings.deep_sleep_duration_sec);
     LOG_DEBUG(TAG, "🔘 Réveil possible par bouton GPIO %d pour mode transfert", WAKEUP_BUTTON_PIN);
     
     // ⚠️ PAS de set_led_rgb() ici avant deinit !
@@ -707,7 +713,7 @@ void app_main(void)
     deinit_led_rgb();  // Éteindre proprement + verrouiller GPIO bas pour deep sleep
     
     // Configurer le réveil par timer
-    esp_sleep_enable_timer_wakeup(DEEP_SLEEP_DURATION_SEC * 1000000ULL); // Convertir en microsecondes
+    esp_sleep_enable_timer_wakeup((uint64_t)g_settings.deep_sleep_duration_sec * 1000000ULL); // Convertir en microsecondes
     
     // Le réveil par bouton est déjà configuré par init_wakeup_button()
     

@@ -1,5 +1,6 @@
 #include "led_rgb.h"
 #include "config.h"
+#include "settings.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/rmt_tx.h>
@@ -119,13 +120,11 @@ esp_err_t init_led_rgb(void) {
 }
 
 void set_led_rgb(uint8_t r, uint8_t g, uint8_t b, uint32_t duration_ms, uint8_t blink_count, uint32_t blink_period_ms, bool force_display) {
-#ifndef VISUAL_MODE
-    // Mode terrain : LED désactivées pour économie batterie
+    // Mode terrain (configuré) : LED désactivées pour économie batterie
     // SAUF si force_display = true (erreurs critiques)
-    if (!force_display) {
+    if (!g_settings.visual_mode && !force_display) {
         return;
     }
-#endif
     
     if (led_chan == NULL) {
         ESP_LOGE(TAG, "LED RGB non initialisée");

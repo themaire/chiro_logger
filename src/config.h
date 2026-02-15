@@ -23,25 +23,24 @@
 // ============================================================================
 // Active les signaux LED RGB pour debugging et tests terrain
 // COMMENTER cette ligne pour désactiver les LEDs et économiser la batterie
-// #define VISUAL_MODE
+// #define VISUAL_MODE_DEFAULT // Renommé pour être la valeur par défaut
 
 // ============================================================================
 // 📟 MODE PRODUCTION - Optimisation logs
 // ============================================================================
 // Active le mode production avec logs minimaux pour économie d'énergie
 // DÉCOMMENTER cette ligne pour le déploiement terrain longue durée
-// #define PRODUCTION_MODE
+// #define PRODUCTION_MODE_DEFAULT // Renommé pour être la valeur par défaut
 
 // ============================================================================
 // ⏰ CONFIGURATION DEEP SLEEP
 // ============================================================================
-// #define DEEP_SLEEP_DURATION_SEC 60  // Durée entre mesures (secondes)
-#define DEEP_SLEEP_DURATION_SEC 1800  // 30 minutes = 30 minutes entre mesures (pour tests terrain plus rapides)
+#define DEEP_SLEEP_DURATION_SEC_DEFAULT 1800  // Valeur par défaut si pas de config.txt
 
 // ============================================================================
 // 💾 CONFIGURATION TAMPON FLASH
 // ============================================================================
-#define BUFFER_FLUSH_THRESHOLD 200  // Nombre de mesures avant flush SD
+#define BUFFER_FLUSH_THRESHOLD_DEFAULT 200  // Valeur par défaut si pas de config.txt
 #define BUFFER_MOUNT_POINT "/buffer"
 #define BUFFER_CSV_FILE "/buffer/data_buffer.csv"
 
@@ -64,7 +63,7 @@
 // Offsets ajoutés aux valeurs brutes du capteur pour compenser les écarts
 // Valeur finale = valeur lue + offset
 // Exemple : si la sonde lit 21.75°C et le thermomètre de référence 19.8°C → offset = -1.95
-#define SHT45_TEMP_OFFSET     -0.5f  // Correction température en °C
-#define SHT45_HUMIDITY_OFFSET  0.0f   // Correction humidité en %RH
+#define SHT45_TEMP_OFFSET_DEFAULT     -0.5f  // Valeur par défaut
+#define SHT45_HUMIDITY_OFFSET_DEFAULT  0.0f  // Valeur par défaut
 
 #endif // CONFIG_H

@@ -1,5 +1,6 @@
 #include "sht45.h"
 #include "config.h"
+#include "settings.h"
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -141,8 +142,8 @@ esp_err_t read_sht45(sht45_data_t *data)
     uint16_t raw_temp = (raw[0] << 8) | raw[1];
     uint16_t raw_hum  = (raw[3] << 8) | raw[4];
 
-    data->temperature = -45.0f + 175.0f * ((float)raw_temp / 65535.0f) + SHT45_TEMP_OFFSET;
-    data->humidity    =  -6.0f + 125.0f * ((float)raw_hum  / 65535.0f) + SHT45_HUMIDITY_OFFSET;
+    data->temperature = -45.0f + 175.0f * ((float)raw_temp / 65535.0f) + g_settings.sht45_temp_offset;
+    data->humidity    =  -6.0f + 125.0f * ((float)raw_hum  / 65535.0f) + g_settings.sht45_humidity_offset;
 
     // Clamp humidité dans la plage valide [0, 100]
     if (data->humidity < 0.0f)   data->humidity = 0.0f;

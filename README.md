@@ -14,6 +14,7 @@
 - [🦇 Projet de Datalogger Température \& Humidité pour Cavités à Chiroptères](#-projet-de-datalogger-température--humidité-pour-cavités-à-chiroptères)
   - [📑 Sommaire](#-sommaire)
   - [🎯 Objectif](#-objectif)
+  - [🎛️ Configuration dynamique](#️-configuration-dynamique)
   - [🧪 Contexte scientifique](#-contexte-scientifique)
   - [⚙️ Spécifications techniques du dispositif](#️-spécifications-techniques-du-dispositif)
     - [Matériel principal](#matériel-principal)
@@ -52,6 +53,10 @@
       - [6. Flasher sur la carte](#6-flasher-sur-la-carte)
     - [🔧 Commandes utiles](#-commandes-utiles)
     - [🐛 Dépannage](#-dépannage)
+      - [Problème : Headers BLE non trouvés (`esp_bt_main.h` manquant)\*\*](#problème--headers-ble-non-trouvés-esp_bt_mainh-manquant)
+      - [Problème : Erreur de compilation avec Xtensa sur ESP32-C3\*\*](#problème--erreur-de-compilation-avec-xtensa-sur-esp32-c3)
+      - [Problème : IntelliSense ne trouve pas les includes\*\*](#problème--intellisense-ne-trouve-pas-les-includes)
+      - [Problème : Port série non détecté](#problème--port-série-non-détecté)
     - [📦 Structure du projet](#-structure-du-projet)
   - [�📡 Mode transfert Bluetooth BLE](#-mode-transfert-bluetooth-ble)
     - [🔄 Récupération des données sans contact](#-récupération-des-données-sans-contact)
@@ -63,6 +68,22 @@
 Concevoir et déployer un **datalogger autonome et discret** permettant la mesure **long terme** de la **température** et l’**humidité** dans des **cavités naturelles** ou souterraines **occupées par des chauves-souris (chiroptères)**.
 
 L’objectif est de récolter des données environnementales précises, sans perturber les conditions locales, afin de mieux comprendre les dynamiques microclimatiques des sites d’hivernage.
+
+## 🎛️ Configuration dynamique
+
+Le datalogger est entièrement configurable via un fichier `config.txt` situé à la racine de la carte microSD. Ce système permet d'ajuster les paramètres de déploiement (fréquence, calibration, discrétion) directement sur le terrain ou depuis le bureau, sans avoir à reprogrammer le microcontrôleur en effectuant une compilation.
+
+Si le fichier est absent au démarrage, il est généré automatiquement avec les valeurs par défaut.
+
+| Paramètre | Description | Valeur par défaut | Exemple |
+|-----------|-------------|-------------------|---------|
+| `DEEP_SLEEP_SEC` | Intervalle de temps entre deux mesures (en secondes) | `300` (5 min) | `DEEP_SLEEP_SEC=1800` (30 min) |
+| `FLUSH_THRESHOLD` | Nombre de mesures stockées en tampon flash avant écriture sur SD | `200` | `FLUSH_THRESHOLD=500` |
+| `VISUAL_MODE` | Active (`1`) ou désactive (`0`) le feedback lumineux LED (mode furtif) | `1` (Activé) | `VISUAL_MODE=0` |
+| `OFFSET_T` | Valeur de calibration ajoutée à la température mesurée (°C) | `0.0` | `OFFSET_T=-0.5` |
+| `OFFSET_H` | Valeur de calibration ajoutée à l'humidité mesurée (%) | `0.0` | `OFFSET_H=1.2` |
+
+> 💡 **Conseil déploiement** : Pour une autonomie maximale sur plusieurs mois, utilisez `VISUAL_MODE=0` et augmentez `DEEP_SLEEP_SEC` (ex: 1800s pour 30min). `FLUSH_THRESHOLD` élevé (ex: 500) réduit l'usure de la carte SD.
 
 ## 🧪 Contexte scientifique
 
@@ -895,21 +916,25 @@ idf_component_register(
 ### ✨ Bénéfices de la refactorisation
 
 **🧹 Code plus propre :**
+
 - main.c réduit de ~890 à ~320 lignes
 - Séparation claire des responsabilités
 - Réduction de la complexité cognitive
 
 **🔄 Réutilisabilité :**
+
 - Modules indépendants réutilisables
 - APIs documentées et cohérentes
 - Tests modulaires possibles
 
 **🚀 Maintenabilité :**
+
 - Modifications localisées par fonctionnalité
 - Debugging simplifié
 - Ajout de nouvelles fonctions facilité
 
 **📦 Extensibilité future :**
+
 - Ajout facile de nouveaux capteurs (I2C, SPI...)
 - Intégration BLE modulaire
 - Support multi-plateformes (ESP32 classique ↔ ESP32-C3)
@@ -1011,19 +1036,19 @@ pio device monitor
 
 ### 🐛 Dépannage
 
-**Problème : Headers BLE non trouvés (`esp_bt_main.h` manquant)**
+#### Problème : Headers BLE non trouvés (`esp_bt_main.h` manquant)**
 
 → L'ESP32-C3 utilise NimBLE, pas le stack Bluedroid classique. Vérifiez que `lib_deps = esp-nimble-cpp` est dans `platformio.ini`.
 
-**Problème : Erreur de compilation avec Xtensa sur ESP32-C3**
+#### Problème : Erreur de compilation avec Xtensa sur ESP32-C3**
 
 → L'ESP32-C3 utilise RISC-V, pas Xtensa. Vérifiez que `board = lolin_c3_mini` est configuré.
 
-**Problème : IntelliSense ne trouve pas les includes**
+#### Problème : IntelliSense ne trouve pas les includes**
 
 → Lancez `pio run -t compiledb` puis rechargez VS Code.
 
-**Problème : Port série non détecté**
+#### Problème : Port série non détecté
 
 → Vérifiez les drivers USB-Serial (CH340, CP210x selon la carte).
 
