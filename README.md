@@ -103,14 +103,16 @@ Dans les études de suivi des chiroptères, la précision des mesures et la **no
 | Composant | Rôle | Remarques |
 |----------|------|-----------|
 | **[LOLIN C3 Mini (ESP32-C3)](https://fr.aliexpress.com/item/1005004866531117.html)** | Microcontrôleur principal | Ultra faible consommation (~5µA en deep sleep), BLE 5.0, architecture RISC-V, chargeur batterie intégré |
-| **Shield RTC + microSD (DS1307)** | Horloge + stockage combinés | Module tout-en-un : DS1307 RTC pour horodatage + lecteur microSD pour stockage CSV - montage compact sur une seule plaquette |
+| **Shield RTC + microSD (DS1307)** | Horloge + stockage combinés | Module tout-en-un : DS1307 RTC pour horodatage + lecteur microSD pour stockage CSV - montage compact sur une seule plaquette. Une pile CR1220 est nécessaire. |
 | **SHT45** | Capteur de température et humidité | Haute précision industrielle, I2C, très faible consommation (<0.1µA en veille) |
 | **LED RGB WS2812** | Feedback visuel optionnel | LED RGB addressable sur GPIO7, pilotée via RMT, désactivable pour économie batterie (mode VISUAL_MODE) |
 | **Batterie LiPo 3.7V (≥1000mAh)** | Alimentation autonome | Chargeur intégré dans le LOLIN C3 Mini, autonomie estimée à plusieurs mois/années |
-| **Boutons tactiles étanches** | Déclencheurs sans ouverture | Activation mode transfert BLE + vérification charge batterie |
+| **Bouton étanche avec LED intégré** | Déclencheurs sans ouverture | Activation mode transfert BLE + vérification charge batterie |
 | **Connecteur USB-C étanche** | Recharge sans ouverture | Le chargeur de batterie est intégré au LOLIN C3 Mini. Le connecteur est soudé aux à l'entrée 5V de la carte. |
 
 ### 📌 Pinout ESP32-C3 — Affectation des GPIOs
+
+![Schéma de la carte coté face](assets/images/c3_pico_v1.webp)
 
 Vue d'ensemble de l'utilisation des GPIOs sur le **LOLIN C3 Mini / PICO** :
 
@@ -122,13 +124,13 @@ Vue d'ensemble de l'utilisation des GPIOs sur le **LOLIN C3 Mini / PICO** :
 | **3** | ADC1_CH3 | Batterie (diviseur 2:1) | `battery.c` | Tension via pont diviseur 100K/100K |
 | **4** | SPI MOSI | Carte SD (DI) | `sd_card.c` | Shield D1 Mini : D7 |
 | **5** | SPI CS | Carte SD (CS) | `sd_card.c` | Shield D1 Mini : D8 |
-| **6** | Sortie GPIO | LED témoin bouton réveil | `config.h` | Témoin lumineux intégré au bouton de réveil (GPIO2) |
+| **6** | Sortie GPIO | LED témoin bouton réveil | `config.h` | Témoin lumineux intégré au bouton de réveil (en GPIO2) |
 | **7** | RMT TX | LED RGB WS2812 | `led_rgb.c` | LED intégrée LOLIN C3 PICO, alimentée 3.3V en permanence |
 | **8** | I2C SDA | RTC DS1307 + SHT45 | `config.h` | Shield D1 Mini : D2 |
 | **9** | BOOT | **🟡 RÉSERVÉ** | — | Bouton BOOT du LOLIN C3 Mini — forcer le mode flash au démarrage |
 | **10** | I2C SCL | RTC DS1307 + SHT45 | `config.h` | Shield D1 Mini : D1 |
-| **18** | USB D- | USB natif | — | Réservé USB-CDC (logs série) |
-| **19** | USB D+ | USB natif | — | Réservé USB-CDC (logs série) |
+| **18** | USB D- | USB natif | — | Réservé USB-CDC (logs série, non exposé sur la carte) |
+| **19** | USB D+ | USB natif | — | Réservé USB-CDC (logs série, non exposé sur la carte) |
 | **20** | UART RX | — | — | RX0 par défaut |
 | **21** | UART TX | — | — | TX0 par défaut |
 

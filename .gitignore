@@ -20,3 +20,4 @@ CMakeConfigureLog.yaml
 build/
 build_*/
 out/
+.DS_Store
