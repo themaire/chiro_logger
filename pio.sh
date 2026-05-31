@@ -54,6 +54,8 @@ detect_port() {
         PORT=$(ls /dev/cu.usbserial* | head -1)
     elif ls /dev/ttyUSB* 2>/dev/null | grep -q .; then
         PORT=$(ls /dev/ttyUSB* | head -1)
+    elif ls /dev/tty.usbmodem* 2>/dev/null | grep -q .; then
+        PORT=$(ls /dev/tty.usbmodem* | head -1)
     else
         PORT=""
     fi

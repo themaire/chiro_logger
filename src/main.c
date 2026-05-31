@@ -29,7 +29,7 @@
 // comme : les pins, les durées de deep sleep, les chemins de fichiers, etc.
 #include "config.h"
 
-// #include "ble_manager.h"
+#include "ble_manager.h"
 
 static const char *TAG = "CHIRO_LOGGER";
 
@@ -404,15 +404,30 @@ esp_err_t init_wakeup_button(void)
     return ESP_OK;
 }
 
-// Fonction pour gérer le mode transfert BLE (désactivée temporairement)
-// sert à gérer le mode transfert BLE (désactivée temporairement)
+// Fonction pour gérer le mode transfert BLE
+// Appelée quand le bouton est pressé (réveil GPIO)
 void handle_transfer_mode(void)
 {
-    LOG_ESSENTIAL(TAG, "🔘 Mode transfert BLE désactivé temporairement");
-    LOG_ESSENTIAL(TAG, "💤 Retour au mode normal...");
-    
-    // Signal LED : BLE désactivé - Orange clignotant
-    set_led_rgb(255, 165, 0, 2000, 5, 300, false);  // Orange 5 clignotements
+    LOG_ESSENTIAL(TAG, "🔘 Entrée en mode transfert BLE");
+
+    // Signal LED : orange = BLE en advertising (forcé même sans VISUAL_MODE)
+    set_led_rgb(255, 165, 0, 500, 3, 200, true);
+
+    // Initialiser le BLE
+    esp_err_t ret = ble_manager_init();
+    if (ret != ESP_OK) {
+        LOG_ESSENTIAL(TAG, "❌ Impossible d'initialiser le BLE: %s", esp_err_to_name(ret));
+        set_led_rgb(255, 0, 0, 3000, 5, 250, true);  // Rouge = erreur critique
+        return;
+    }
+
+    // Attendre la connexion et le transfert (bloquant jusqu'au timeout)
+    ble_manager_start_transfer_mode();
+
+    // Arrêter proprement le BLE avant le deep sleep
+    ble_manager_stop();
+
+    LOG_ESSENTIAL(TAG, "✅ Mode transfert BLE terminé");
 }
 
 // Fonction de signalement d'urgence
@@ -595,7 +610,25 @@ void app_main(void)
     
     // Vérifier si on a été réveillé par le bouton (mode transfert BLE)
     if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO) {
+        // 1. Monter le tampon SPIFFS et le flusher vers la SD
+        ret = init_flash_buffer();
+        if (ret == ESP_OK) {
+            flush_buffer_to_sd(); // copie SPIFFS→SD puis démonte la SD
+        } else {
+            LOG_ESSENTIAL(TAG, "⚠️  Tampon flash indisponible — flush ignoré");
+        }
+
+        // 2. Monter la SD pour que ble_manager puisse la lire pendant le transfert
+        ret = init_sd_card();
+        if (ret != ESP_OK) {
+            LOG_ESSENTIAL(TAG, "⚠️  SD indisponible — transfert BLE sans données SD");
+        }
+
+        // 3. Transfert BLE (ble_manager lit depuis /sdcard/CHIRO/data.csv)
         handle_transfer_mode();
+
+        // 4. Démonter la SD après le transfert
+        unmount_sd_card();
         
         // Après le mode transfert, retourner en deep sleep immédiatement
         LOG_ESSENTIAL(TAG, "💤 Retour en deep sleep après mode transfert...");
