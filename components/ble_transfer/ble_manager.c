@@ -159,6 +159,66 @@ static int gatt_status_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+/* ── Helper : envoi NOTIFY compatible MTU variable ───────────────────────── */
+
+/**
+ * Envoie 'len' octets de 'data' en NOTIFY en respectant le MTU négocié.
+ * Découpe automatiquement en chunks si la donnée dépasse le payload max.
+ * Compatible BT 4.2 (MTU 23 → payload 20) et BT 5.x (MTU jusqu'à 517).
+ * Angular reconstitue les lignes côté client grâce au buffering sur '\n'.
+ *
+ * @param had_retry  Mis à true si au moins un retry ENOMEM a eu lieu (sortie).
+ *                   Permet à l'appelant d'adapter le délai inter-lignes.
+ * @return 0 si succès, code d'erreur NimBLE sinon.
+ */
+static int notify_chunked(const char *data, size_t len, bool *had_retry)
+{
+    uint16_t mtu = ble_att_mtu(g_conn_handle);
+    if (mtu < 4) mtu = 23;
+    uint16_t max_payload = mtu - 3;
+
+    const char *ptr       = data;
+    size_t      remaining = len;
+    int         rc        = 0;
+    if (had_retry) *had_retry = false;
+
+    while (remaining > 0) {
+        uint16_t chunk = (remaining > max_payload)
+                         ? max_payload : (uint16_t)remaining;
+
+        /*
+         * Retry sur BLE_HS_ENOMEM (rc=6) : pool os_mbuf saturée.
+         * Délai de 30 ms = un connection interval BT 4.2 (≥ 30 ms typique).
+         * NimBLE libère l'om passé à ble_gatts_notify_custom() même en cas
+         * d'erreur — pas besoin de os_mbuf_free_chain() manuellement.
+         */
+        int retries = 0;
+        do {
+            struct os_mbuf *om = ble_hs_mbuf_from_flat(ptr, chunk);
+            if (!om) {
+                vTaskDelay(pdMS_TO_TICKS(30));
+                rc = BLE_HS_ENOMEM;
+                retries++;
+                continue;
+            }
+            rc = ble_gatts_notify_custom(g_conn_handle, g_data_val_handle, om);
+            if (rc == BLE_HS_ENOMEM) {
+                vTaskDelay(pdMS_TO_TICKS(30));
+                retries++;
+            }
+        } while (rc == BLE_HS_ENOMEM && retries < 8);
+
+        if (retries > 0 && had_retry) *had_retry = true;
+        if (rc != 0) return rc;
+        ptr       += chunk;
+        remaining -= chunk;
+        if (remaining > 0) {
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
+    }
+    return rc;
+}
+
 /* ── Tâche d'envoi des données ───────────────────────────────────────────── */
 
 /**
@@ -180,15 +240,15 @@ static void data_sender_task(void *param)
         }
 
         g_state = BLE_STATE_TRANSFERRING;
-        ESP_LOGI(TAG, "📤 Début du transfert CSV depuis SD...");
+        uint16_t mtu = ble_att_mtu(g_conn_handle);
+        ESP_LOGI(TAG, "📤 Début du transfert CSV depuis SD (MTU=%d, payload=%d)...",
+                 mtu, mtu - 3);
 
         /* Lire depuis la carte SD (montée par main.c avant handle_transfer_mode) */
         FILE *f = fopen(SD_CSV_FILE, "r");
 
         if (f == NULL) {
-            const char *msg = "NO_DATA\n";
-            struct os_mbuf *om = ble_hs_mbuf_from_flat(msg, strlen(msg));
-            if (om) ble_gatts_notify_custom(g_conn_handle, g_data_val_handle, om);
+            notify_chunked("NO_DATA\n", 8, NULL);
             ESP_LOGW(TAG, "⚠️  Fichier SD introuvable : %s", SD_CSV_FILE);
         } else {
             /* --- Passe 1 : compter les lignes de données (hors en-tête) --- */
@@ -210,15 +270,13 @@ static void data_sender_task(void *param)
             /* Paquet de métadonnées — doit arriver AVANT le header CSV */
             char meta[48];
             snprintf(meta, sizeof(meta), "###META:lines=%d###\n", send_count);
-            struct os_mbuf *om_meta = ble_hs_mbuf_from_flat(meta, strlen(meta));
-            if (om_meta) ble_gatts_notify_custom(g_conn_handle, g_data_val_handle, om_meta);
+            notify_chunked(meta, strlen(meta), NULL);
             vTaskDelay(pdMS_TO_TICKS(5));
 
             /* En-tête CSV */
             const char *hdr =
                 "ID,DateTime,Temperature_C,Humidity_%,Battery_%,Battery_V\n";
-            struct os_mbuf *om = ble_hs_mbuf_from_flat(hdr, strlen(hdr));
-            if (om) ble_gatts_notify_custom(g_conn_handle, g_data_val_handle, om);
+            notify_chunked(hdr, strlen(hdr), NULL);
             vTaskDelay(pdMS_TO_TICKS(5));
 
             /* --- Passe 2 : sauter les anciennes lignes, envoyer les dernières --- */
@@ -235,28 +293,27 @@ static void data_sender_task(void *param)
                 size_t len = strlen(line);
                 if (len <= 1) continue;
 
-                om = ble_hs_mbuf_from_flat(line, len);
-                if (om) {
-                    int rc = ble_gatts_notify_custom(
-                                 g_conn_handle, g_data_val_handle, om);
-                    if (rc != 0) {
-                        ESP_LOGW(TAG, "⚠️  NOTIFY erreur rc=%d, arrêt", rc);
-                        break;
-                    }
-                    sent++;
+                bool had_retry = false;
+                int rc = notify_chunked(line, len, &had_retry);
+                if (rc != 0) {
+                    ESP_LOGW(TAG, "⚠️  NOTIFY erreur rc=%d, arrêt", rc);
+                    break;
                 }
-                vTaskDelay(pdMS_TO_TICKS(5));
+                sent++;
+                /*
+                 * Délai adaptatif : 5 ms en temps normal (BT 5.x), mais si un
+                 * retry ENOMEM a eu lieu la pool est encore sous pression —
+                 * on attend un connection interval complet (30 ms) avant la
+                 * prochaine ligne pour laisser le téléphone drainer.
+                 */
+                vTaskDelay(pdMS_TO_TICKS(had_retry ? 30 : 5));
             }
             fclose(f);
             ESP_LOGI(TAG, "✅ %lu lignes envoyées", (unsigned long)sent);
         }
 
         /* Marqueur de fin de transfert */
-        const char *eof = "###EOF###\n";
-        struct os_mbuf *om_eof = ble_hs_mbuf_from_flat(eof, strlen(eof));
-        if (om_eof) {
-            ble_gatts_notify_custom(g_conn_handle, g_data_val_handle, om_eof);
-        }
+        notify_chunked("###EOF###\n", 10, NULL);
 
         g_state = BLE_STATE_CONNECTED;
         ESP_LOGI(TAG, "🏁 Transfert terminé");

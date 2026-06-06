@@ -58,7 +58,7 @@
       - [Problème : IntelliSense ne trouve pas les includes\*\*](#problème--intellisense-ne-trouve-pas-les-includes)
       - [Problème : Port série non détecté](#problème--port-série-non-détecté)
     - [📦 Structure du projet](#-structure-du-projet)
-  - [�📡 Mode transfert Bluetooth BLE](#-mode-transfert-bluetooth-ble)
+  - [📡 Mode transfert Bluetooth BLE](#-mode-transfert-bluetooth-ble)
     - [🔄 Récupération des données sans contact](#-récupération-des-données-sans-contact)
 
 ---
@@ -1081,7 +1081,7 @@ chiro_logger/
 
 ---
 
-## �📡 Mode transfert Bluetooth BLE
+## 📡 Mode transfert Bluetooth BLE
 
 ### 🔄 Récupération des données sans contact
 
@@ -1089,62 +1089,105 @@ Le datalogger intègre un **mode transfert BLE** permettant de récupérer les d
 
 **🎛️ Activation du mode transfert :**
 
-- **Déclencheur** : Appui sur bouton GPIO0 (BOOT) pendant le deep sleep
-- **Réveil automatique** : L'ESP32 détecte l'appui et active le BLE
+- **Déclencheur** : Appui sur le bouton GPIO2 pendant le deep sleep
+- **Réveil automatique** : L'ESP32 détecte le niveau bas et active le BLE
+- **Stack utilisé** : NimBLE (recommandé pour ESP32-C3 RISC-V, plus léger que Bluedroid)
 - **Service GATT** : Service personnalisé avec UUIDs 128 bits
   - **Service :** `12345678-1234-1234-1234-123456789ABC`
   - **Caractéristique données :** `87654321-4321-4321-4321-CBA987654321`
-- **Publicité active** : Device visible comme "ChiroLogger"
-- **Connexion PWA** : L'application web se connecte automatiquement
+- **Publicité active** : Device visible comme `ChiroLogger`
+- **Connexion PWA** : L'application web se connecte via Web Bluetooth API
 
-**⚡ Fonctionnement optimisé :**
+**🔄 Flux de transfert complet :**
 
-- **Timeout intelligent** : Mode BLE actif pendant 5 minutes maximum
-- **Retour automatique** : Retour en deep sleep après transfert ou timeout
-- **Économie d'énergie** : BLE activé uniquement à la demande
-- **Feedback LED** : Indication visuelle du mode actif
+```
+[Bouton appuyé]
+    │
+    ▼
+1. init_flash_buffer()       // Monte le tampon SPIFFS
+2. flush_buffer_to_sd()      // Copie SPIFFS → /sdcard/CHIRO/data.csv
+3. init_sd_card()            // Monte la SD (reste montée pour le BLE)
+4. handle_transfer_mode()    // Stack NimBLE + advertising + transfert GATT
+5. unmount_sd_card()         // Démontage propre
+6. esp_deep_sleep_start()    // Retour en veille
+```
 
-**📱 Compatibilité PWA :**
+**📦 Protocole de transfert GATT NOTIFY :**
+
+Les données arrivent côté Angular dans cet ordre :
+
+```
+###META:lines=847###          ← nombre exact de lignes → barre de progression
+ID,DateTime,Temperature_C,... ← en-tête CSV
+1,2026-01-01 08:00:00,...     ← lignes de données (les 2000 dernières)
+...
+###EOF###                     ← fin de transfert
+```
+
+**⚡ Optimisations de performance :**
+
+- **Lecture SD** : Double passage sur le fichier CSV
+  1. Passe 1 : comptage des lignes (pour `META` et le `skip_count`)
+  2. Passe 2 : saut des lignes anciennes, envoi des 2000 dernières
+- **Délai inter-lignes** : 5 ms (compatible BT 5.x haute performance)
+- **Débit estimé** : 2000 lignes ≈ 10 secondes
+
+**🛠️ Compatibilité BT 4.2 / BT 5.x — Chunking adaptatif :**
+
+Certains téléphones anciens (BT 4.2, ex : Samsung Galaxy S7) négocient un MTU de 23 bytes, soit seulement **20 bytes de payload utile** (après overhead ATT de 3 bytes). Envoyer une ligne CSV de 42 bytes en un seul NOTIFY provoque un rejet silencieux.
+
+La fonction `notify_chunked()` gère cela automatiquement :
+
+```c
+static int notify_chunked(const char *data, size_t len)
+{
+    uint16_t mtu         = ble_att_mtu(g_conn_handle); // lu après négociation
+    uint16_t max_payload = mtu - 3;                    // overhead ATT header
+
+    // Découpe la ligne en chunks de taille ≤ max_payload
+    // et envoie chaque chunk via ble_gatts_notify_custom()
+}
+```
+
+Le log au début du transfert indique le MTU détecté :
+```
+📤 Début du transfert CSV depuis SD (MTU=256, payload=253)... ← iPhone / Android récent
+📤 Début du transfert CSV depuis SD (MTU=23, payload=20)...  ← Samsung S7 / BT 4.2
+```
+
+**🔁 Retry sur saturation de pool (BLE_HS_ENOMEM) :**
+
+Sur les téléphones BT 4.2, la pool interne de buffers NimBLE (`os_mbuf`) peut se saturer si l'ESP32 envoie plus vite que le téléphone ne draine via son connection interval (~20 ms). Sans protection, le transfert s'arrête à la 20ème ligne avec `rc=6`.
+
+Solution : retry avec backoff dans `notify_chunked()` :
+
+```c
+int retries = 0;
+do {
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(ptr, chunk);
+    if (!om || rc == BLE_HS_ENOMEM) {
+        vTaskDelay(pdMS_TO_TICKS(20)); // attendre 1 connection interval
+        retries++;
+        continue;
+    }
+    rc = ble_gatts_notify_custom(g_conn_handle, g_data_val_handle, om);
+} while (rc == BLE_HS_ENOMEM && retries < 8);
+```
+
+Le délai de 20 ms correspond à un connection interval BT 4.2 — juste le temps que le stack libère un buffer. Sur BT 5.x aucun retry n'est jamais nécessaire.
+
+**📱 Compatibilité PWA Angular :**
 
 Le système fonctionne avec l'[Angular Chiro App](https://github.com/themaire/angular_chiro_app), une PWA qui :
 
-- Se connecte automatiquement au datalogger via Web Bluetooth API
-- Récupère et affiche les données CSV en temps réel  
-- Fonctionne sur smartphone/tablette sans installation
-- Permet l'export et l'analyse des données sur le terrain
-
-**🛠️ Implémentation technique :**
-
-```c
-// Structure modulaire du composant BLE
-components/ble_transfer/
-├── ble_manager.h        // API publique + UUIDs
-├── ble_manager.c        // Service GATT + callbacks + conversion UUID
-└── CMakeLists.txt       // Dépendances BT (bt, nvs_flash)
-
-// Conversion UUID correcte (little-endian pour ESP32)
-static void uuid_string_to_bin(const char *uuid_str, uint8_t *uuid_bin);
-
-// Séquence de connexion BLE
-1. ESP_GATTS_REG_EVT -> Création service GATT
-2. ESP_GATTS_CREATE_EVT -> Ajout caractéristique données  
-3. ESP_GATTS_ADD_CHAR_EVT -> Service démarré
-4. ESP_GATTS_CONNECT_EVT -> Client connecté, publicité arrêtée
-5. ESP_GATTS_READ_EVT -> Envoi des données CSV
-
-// Intégration dans main.c
-esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
-    handle_transfer_mode();  // Mode BLE actif
-} else {
-    perform_measurement();   // Mode normal
-}
-```
+- Se connecte au datalogger via Web Bluetooth API (`namePrefix: 'ChiroLogger'`)
+- Lit `###META:lines=N###` pour afficher une barre de progression
+- Bufferise les fragments de lignes (chunks) et parse sur `\n`
+- Affiche les données en temps réel dans un dashboard
+- Compatible smartphones Android (Chrome) et iOS (via apps tierces)
 
 **🔒 Sécurité et fiabilité :**
 
 - **Données en lecture seule** : Aucune modification possible via BLE
-- **Mode temporaire** : BLE désactivé en fonctionnement normal
-- **Impact nul sur l'autonomie** : Mode transfert purement optionnel
-
-Cette innovation permet une **récupération des données totalement non-intrusive**, essentielle pour les études sur terrain sensible.
+- **Mode temporaire** : BLE actif 5 minutes max puis retour deep sleep automatique
+- **Impact nul sur l'autonomie** : Mode transfert purement optionnel et ponctuel
